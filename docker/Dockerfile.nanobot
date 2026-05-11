@@ -1,0 +1,30 @@
+FROM agent-runner/base:latest
+
+USER root
+
+# Install nanobot
+RUN pip3 install --break-system-packages nanobot-ai
+
+# Create entrypoint script
+RUN cat > /usr/local/bin/run-agent << 'SCRIPT'
+#!/bin/bash
+set -e
+PROMPT=$(cat "$PROMPT_FILE")
+echo "=== nanobot ==="
+echo "Prompt: $PROMPT"
+echo "Workspace: $WORKSPACE"
+echo ""
+# nanobot runs in the workspace directory
+export NANOBOT_WORKSPACE="$WORKSPACE"
+export NANOBOT_PROVIDER="${NANOBOT_PROVIDER:-anthropic}"
+export NANOBOT_MODEL="${NANOBOT_MODEL:-claude-sonnet-4-20250514}"
+# Run nanobot agent in headless mode
+nanobot agent -m "$PROMPT" 2>&1 || true
+echo ""
+echo "=== Done ==="
+SCRIPT
+RUN chmod +x /usr/local/bin/run-agent
+
+USER agent
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/run-agent"]

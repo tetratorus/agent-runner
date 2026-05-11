@@ -35,11 +35,16 @@ export OPENAI_API_KEY="sk-..."
 
 ## Available Agents
 
-| Agent | Key | Needs |
-|-------|-----|-------|
-| Claude Code | `claude-code` | `ANTHROPIC_API_KEY` |
-| Codex CLI | `codex` | `OPENAI_API_KEY` |
-| Aider | `aider` | `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` |
+| Agent | Key | Needs | Notes |
+|-------|-----|-------|-------|
+| Claude Code | `claude-code` | `ANTHROPIC_API_KEY` | Anthropic official. S-tier reasoning. |
+| Codex CLI | `codex` | `OPENAI_API_KEY` | OpenAI official. Token-efficient. |
+| Aider | `aider` | `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | OSS baseline. Git-native, any LLM. |
+| Goose | `goose` | `ANTHROPIC_API_KEY` | Block's open-source agent. Model-agnostic, MCP. |
+| Gemini CLI | `gemini-cli` | `GEMINI_API_KEY` | Google's official CLI. Good with new models. |
+| OpenCode | `opencode` | `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` | Multi-provider fork. |
+| nanobot | `nanobot` | `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | HKUDS. ~4K lines, MCP, memory, subagents. |
+| Pi | `pi` | `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | Composable agent. Skills, AGENTS.md. |
 
 ## Commands
 

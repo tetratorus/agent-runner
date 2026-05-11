@@ -1,0 +1,27 @@
+FROM agent-runner/base:latest
+
+USER root
+
+# Install OpenCode
+RUN npm install -g opencode-ai
+
+# Create entrypoint script
+RUN cat > /usr/local/bin/run-agent << 'SCRIPT'
+#!/bin/bash
+set -e
+PROMPT=$(cat "$PROMPT_FILE")
+echo "=== OpenCode ==="
+echo "Prompt: $PROMPT"
+echo "Workspace: $WORKSPACE"
+echo ""
+cd "$WORKSPACE"
+# OpenCode non-interactive mode
+opencode --prompt "$PROMPT" 2>&1 || true
+echo ""
+echo "=== Done ==="
+SCRIPT
+RUN chmod +x /usr/local/bin/run-agent
+
+USER agent
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/run-agent"]

@@ -1,0 +1,27 @@
+FROM agent-runner/base:latest
+
+USER root
+
+# Install Pi Coding Agent
+RUN npm install -g @mariozechner/pi-coding-agent
+
+# Create entrypoint script
+RUN cat > /usr/local/bin/run-agent << 'SCRIPT'
+#!/bin/bash
+set -e
+PROMPT=$(cat "$PROMPT_FILE")
+echo "=== Pi Coding Agent ==="
+echo "Prompt: $PROMPT"
+echo "Workspace: $WORKSPACE"
+echo ""
+cd "$WORKSPACE"
+# Pi agent non-interactive mode
+pi "$PROMPT" 2>&1 || true
+echo ""
+echo "=== Done ==="
+SCRIPT
+RUN chmod +x /usr/local/bin/run-agent
+
+USER agent
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/run-agent"]
