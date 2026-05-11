@@ -114,8 +114,6 @@ def docker_available():
 
 def build_base_image():
     """Build the shared base image."""
-    uid = os.getuid()
-    gid = os.getgid()
     dockerfile = DOCKER_DIR / "Dockerfile.base"
     if not dockerfile.exists():
         log(f"ERROR: Base Dockerfile not found: {dockerfile}")
@@ -123,7 +121,6 @@ def build_base_image():
     log("Building base image...")
     cmd = (
         f"docker build --platform linux/amd64 "
-        f"--build-arg USER_ID={uid} --build-arg GROUP_ID={gid} "
         f"-t agent-runner/base -f {dockerfile} {DOCKER_DIR}"
     )
     rc, _, err = run_cmd(cmd, capture=True)
@@ -141,13 +138,9 @@ def build_image(agent_key):
         log(f"ERROR: Dockerfile not found: {dockerfile}")
         return False
 
-    uid = os.getuid()
-    gid = os.getgid()
-
     log(f"Building {cfg['name']} image...")
     cmd = (
         f"docker build --platform linux/amd64 "
-        f"--build-arg USER_ID={uid} --build-arg GROUP_ID={gid} "
         f"-t {cfg['image']} -f {dockerfile} {DOCKER_DIR}"
     )
     rc, _, err = run_cmd(cmd, capture=True)
