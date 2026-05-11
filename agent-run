@@ -32,7 +32,7 @@ AGENTS = {
         "name": "Claude Code",
         "dockerfile": "Dockerfile.claude",
         "image": "agent-runner/claude-code",
-        "env": ["ANTHROPIC_API_KEY"],
+        "env": ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL"],
         "description": "Anthropic's Claude Code CLI — S-tier reasoning, token-heavy",
     },
     "codex": {
@@ -204,6 +204,7 @@ def run_agent(agent_key, prompt, workspace, out_dir=None, timeout=600):
 
     cmd = (
         f"docker run --rm --platform linux/amd64 "
+        f"--add-host=host.docker.internal:host-gateway "
         f"-v '{ws}:/workspace:rw' "
         f"-v '{result_dir}:/results:rw' "
         f"{env_args} "
@@ -236,8 +237,8 @@ def run_agent(agent_key, prompt, workspace, out_dir=None, timeout=600):
 
             proc.wait(timeout=timeout)
             rc = proc.returncode
+            lf.write(f"\n# Exit code: {rc}\n")
 
-        lf.write(f"\n# Exit code: {rc}\n")
         log(f"Finished {cfg['name']} — exit {rc}, log: {log_file}")
         return rc
 
@@ -353,21 +354,12 @@ def cmd_run(args):
 def main():
     parser = argparse.ArgumentParser(
         description="Run coding agents in Docker containers",
-        usage="agent-run <command|agent> [options]",
+        usage="agent-run <setup|list|agent> [options]",
     )
-    sub = parser.add_subparsers(dest="command")
-
-    # setup
-    sub.add_parser("setup", help="Build all Docker images")
-
-    # list
-    sub.add_parser("list", help="List available agents")
-
-    # run (handled by direct agent name)
-    parser.add_argument("agent", nargs="?", help="Agent name (or 'all')")
+    parser.add_argument("command", help="'setup', 'list', an agent name, 'all', or comma-separated agents")
     parser.add_argument("--prompt", "-p", help="Prompt string")
     parser.add_argument("--prompt-file", "-f", help="Path to prompt file")
-    parser.add_argument("--workspace", "-w", required=True, help="Project directory")
+    parser.add_argument("--workspace", "-w", help="Project directory (required for agent runs)")
     parser.add_argument("--out", "-o", help="Results output directory")
     parser.add_argument("--timeout", "-t", type=int, default=600, help="Timeout in seconds")
 
@@ -375,13 +367,15 @@ def main():
 
     if args.command == "setup":
         return cmd_setup(args)
-    elif args.command == "list":
+    if args.command == "list":
         return cmd_list(args)
-    elif args.agent:
-        return cmd_run(args)
-    else:
-        parser.print_help()
+
+    # Anything else is an agent name (or 'all', or comma-separated).
+    if not args.workspace:
+        log("ERROR: --workspace required for agent runs")
         return 1
+    args.agent = args.command
+    return cmd_run(args)
 
 
 if __name__ == "__main__":
