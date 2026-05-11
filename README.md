@@ -27,6 +27,26 @@ export OPENAI_API_KEY="sk-..."
   --out ./results
 ```
 
+## Bundled Anthropic→OpenAI proxy
+
+The [`proxy/`](./proxy) directory is a self-contained translator that
+exposes Anthropic's `/v1/messages` and forwards to any OpenAI-compatible
+backend (OpenAI, DeepSeek, Together, Azure, etc.). Lets you run Claude
+Code through a non-Anthropic model.
+
+```bash
+# 1. Start the proxy on the host
+cd proxy && pip install -r requirements.txt
+OPENAI_MODEL=gpt-4o-mini python3 proxy.py     # listens on :7777
+
+# 2. Point the claude-code container at it
+ANTHROPIC_API_KEY=dummy \
+ANTHROPIC_BASE_URL=http://host.docker.internal:7777 \
+  ./agent-run claude-code --prompt "..." --workspace ./my-project
+```
+
+See [`proxy/README.md`](./proxy/README.md) for full details.
+
 ## Requirements
 
 - macOS (Intel or Apple Silicon)
