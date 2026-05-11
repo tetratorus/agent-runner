@@ -1,0 +1,27 @@
+FROM agent-runner/base:latest
+
+USER root
+
+# Install Aider
+RUN pip3 install --break-system-packages aider-chat
+
+# Create entrypoint script
+RUN cat > /usr/local/bin/run-agent << 'SCRIPT'
+#!/bin/bash
+set -e
+PROMPT=$(cat "$PROMPT_FILE")
+echo "=== Aider ==="
+echo "Prompt: $PROMPT"
+echo "Workspace: $WORKSPACE"
+echo ""
+cd "$WORKSPACE"
+# Aider non-interactive mode
+aider --message "$PROMPT" --no-git --yes 2>&1 || true
+echo ""
+echo "=== Done ==="
+SCRIPT
+RUN chmod +x /usr/local/bin/run-agent
+
+USER agent
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/run-agent"]

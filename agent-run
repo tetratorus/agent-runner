@@ -1,0 +1,360 @@
+#!/usr/bin/env python3
+"""
+agent-run — spin up coding agents in Docker containers on macOS.
+
+Usage:
+  agent-run setup                          # Build all agent images
+  agent-run list                           # List available agents
+  agent-run <agent> --prompt "..." --workspace ./project
+  agent-run <agent> --prompt-file ./prompt.md --workspace ./project
+  agent-run all --prompt "..." --workspace ./project   # Run all agents
+  agent-run claude-code,codex --prompt "..." --workspace ./project
+
+Examples:
+  agent-run claude-code --prompt "Fix the auth bug in login.py" --workspace ./my-app
+  agent-run codex --prompt-file ./task.md --workspace ./my-app --out ./results
+  agent-run all --prompt "Refactor utils.py to use async" --workspace ./my-app
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+import time
+import json
+from pathlib import Path
+from datetime import datetime
+
+# ─── Config ──────────────────────────────────────────────────────────────────
+
+AGENTS = {
+    "claude-code": {
+        "name": "Claude Code",
+        "dockerfile": "Dockerfile.claude",
+        "image": "agent-runner/claude-code",
+        "env": ["ANTHROPIC_API_KEY"],
+        "description": "Anthropic's Claude Code CLI",
+    },
+    "codex": {
+        "name": "Codex CLI",
+        "dockerfile": "Dockerfile.codex",
+        "image": "agent-runner/codex",
+        "env": ["OPENAI_API_KEY"],
+        "description": "OpenAI's Codex CLI",
+    },
+    "aider": {
+        "name": "Aider",
+        "dockerfile": "Dockerfile.aider",
+        "image": "agent-runner/aider",
+        "env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AIDER_MODEL"],
+        "description": "Aider — GPT/Claude pair programmer",
+    },
+}
+
+SCRIPT_DIR = Path(__file__).parent.resolve()
+DOCKER_DIR = SCRIPT_DIR / "docker"
+
+
+# ─── Helpers ─────────────────────────────────────────────────────────────────
+
+def log(msg):
+    print(f"[agent-run] {msg}", file=sys.stderr)
+
+
+def run_cmd(cmd, cwd=None, capture=False):
+    """Run a shell command. Returns (rc, stdout, stderr)."""
+    if isinstance(cmd, list):
+        cmd = " ".join(cmd)
+    if not capture:
+        rc = subprocess.call(cmd, shell=True, cwd=cwd)
+        return rc, "", ""
+    r = subprocess.run(cmd, shell=True, cwd=cwd, capture_output=True, text=True)
+    return r.returncode, r.stdout, r.stderr
+
+
+def docker_available():
+    rc, _, _ = run_cmd("docker info", capture=True)
+    return rc == 0
+
+
+def build_base_image():
+    """Build the shared base image."""
+    uid = os.getuid()
+    gid = os.getgid()
+    dockerfile = DOCKER_DIR / "Dockerfile.base"
+    if not dockerfile.exists():
+        log(f"ERROR: Base Dockerfile not found: {dockerfile}")
+        return False
+    log("Building base image...")
+    cmd = (
+        f"docker build --platform linux/amd64 "
+        f"--build-arg USER_ID={uid} --build-arg GROUP_ID={gid} "
+        f"-t agent-runner/base -f {dockerfile} {DOCKER_DIR}"
+    )
+    rc, _, err = run_cmd(cmd, capture=True)
+    if rc != 0:
+        log(f"Base build failed:\n{err}")
+        return False
+    log("Base image ✓")
+    return True
+
+
+def build_image(agent_key):
+    cfg = AGENTS[agent_key]
+    dockerfile = DOCKER_DIR / cfg["dockerfile"]
+    if not dockerfile.exists():
+        log(f"ERROR: Dockerfile not found: {dockerfile}")
+        return False
+
+    uid = os.getuid()
+    gid = os.getgid()
+
+    log(f"Building {cfg['name']} image...")
+    cmd = (
+        f"docker build --platform linux/amd64 "
+        f"--build-arg USER_ID={uid} --build-arg GROUP_ID={gid} "
+        f"-t {cfg['image']} -f {dockerfile} {DOCKER_DIR}"
+    )
+    rc, _, err = run_cmd(cmd, capture=True)
+    if rc != 0:
+        log(f"Build failed:\n{err}")
+        return False
+    log(f"Built {cfg['name']} ✓")
+    return True
+
+
+def check_env(agent_key):
+    """Ensure required env vars are set."""
+    cfg = AGENTS[agent_key]
+    missing = []
+    for var in cfg["env"]:
+        if not os.environ.get(var):
+            # For AIDER_MODEL, use a default
+            if var == "AIDER_MODEL":
+                os.environ[var] = "claude-3-7-sonnet-20250219"
+                continue
+            missing.append(var)
+    if missing:
+        log(f"ERROR: Missing env vars for {cfg['name']}: {', '.join(missing)}")
+        log(f"  Set them: export {' '.join(f'{v}=...' for v in missing)}")
+        return False
+    return True
+
+
+def run_agent(agent_key, prompt, workspace, out_dir=None, timeout=600):
+    """Run a single agent in Docker."""
+    cfg = AGENTS[agent_key]
+
+    if not check_env(agent_key):
+        return 1
+
+    ws = Path(workspace).resolve()
+    if not ws.exists():
+        log(f"ERROR: Workspace not found: {ws}")
+        return 1
+
+    # Results directory
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if out_dir:
+        result_dir = Path(out_dir).resolve() / agent_key / ts
+    else:
+        result_dir = SCRIPT_DIR / "results" / agent_key / ts
+    result_dir.mkdir(parents=True, exist_ok=True)
+
+    # Write prompt to file (agents read it)
+    prompt_file = result_dir / "prompt.txt"
+    prompt_file.write_text(prompt)
+
+    # Environment vars
+    env_args = " ".join(f'-e {v}="${v}"' for v in cfg["env"] if os.environ.get(v))
+
+    # Output log
+    log_file = result_dir / "output.log"
+
+    log(f"Running {cfg['name']} on {ws.name}...")
+    log(f"  Results: {result_dir}")
+
+    cmd = (
+        f"docker run --rm --platform linux/amd64 "
+        f"-v '{ws}:/workspace:rw' "
+        f"-v '{result_dir}:/results:rw' "
+        f"{env_args} "
+        f"-e PROMPT_FILE=/results/prompt.txt "
+        f"-e WORKSPACE=/workspace "
+        f"--name agent-{agent_key}-{ts} "
+        f"{cfg['image']}"
+    )
+
+    # Run with timeout
+    try:
+        with open(log_file, "w") as lf:
+            lf.write(f"# {cfg['name']} run started at {datetime.now().isoformat()}\n")
+            lf.write(f"# Workspace: {ws}\n")
+            lf.write(f"# Prompt:\n{prompt}\n")
+            lf.write("#" * 60 + "\n\n")
+            lf.flush()
+
+            proc = subprocess.Popen(
+                cmd, shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            # Stream output to both log and console
+            for line in proc.stdout:
+                lf.write(line)
+                lf.flush()
+                print(line, end="")
+
+            proc.wait(timeout=timeout)
+            rc = proc.returncode
+
+        lf.write(f"\n# Exit code: {rc}\n")
+        log(f"Finished {cfg['name']} — exit {rc}, log: {log_file}")
+        return rc
+
+    except subprocess.TimeoutExpired:
+        log(f"TIMEOUT after {timeout}s — killing container")
+        run_cmd(f"docker kill agent-{agent_key}-{ts}")
+        return 124
+    except KeyboardInterrupt:
+        log("Interrupted — killing container")
+        run_cmd(f"docker kill agent-{agent_key}-{ts}")
+        return 130
+
+
+# ─── CLI ─────────────────────────────────────────────────────────────────────
+
+def cmd_setup(args):
+    """Build all Docker images."""
+    if not docker_available():
+        log("ERROR: Docker not available. Install Docker Desktop for macOS.")
+        return 1
+
+    if not build_base_image():
+        return 1
+
+    ok = True
+    for key in AGENTS:
+        if not build_image(key):
+            ok = False
+    return 0 if ok else 1
+
+
+def cmd_list(args):
+    print("Available agents:\n")
+    for key, cfg in AGENTS.items():
+        env_status = " ".join(
+            f"{'✓' if os.environ.get(v) else '✗'} {v}"
+            for v in cfg["env"]
+        )
+        print(f"  {key:15s}  {cfg['name']:20s}  {cfg['description']}")
+        print(f"                   env: {env_status}")
+    print(f"\nRun: agent-run setup  # to build images")
+    return 0
+
+
+def cmd_run(args):
+    if not docker_available():
+        log("ERROR: Docker not available.")
+        return 1
+
+    agents = args.agent.split(",")
+    agents = [a.strip() for a in agents]
+
+    # Resolve aliases
+    if "all" in agents:
+        agents = list(AGENTS.keys())
+
+    # Validate
+    for a in agents:
+        if a not in AGENTS:
+            log(f"ERROR: Unknown agent: {a}")
+            log(f"  Available: {', '.join(AGENTS.keys())}")
+            return 1
+
+    # Get prompt
+    if args.prompt:
+        prompt = args.prompt
+    elif args.prompt_file:
+        pf = Path(args.prompt_file)
+        if not pf.exists():
+            log(f"ERROR: Prompt file not found: {pf}")
+            return 1
+        prompt = pf.read_text()
+    else:
+        log("ERROR: Provide --prompt or --prompt-file")
+        return 1
+
+    if len(agents) == 1:
+        return run_agent(agents[0], prompt, args.workspace, args.out, args.timeout)
+
+    # Multi-agent: run concurrently
+    log(f"Running {len(agents)} agents concurrently...")
+    procs = []
+    for a in agents:
+        # Fork-ish: run in background
+        cmd = [
+            sys.executable, __file__, a,
+            "--prompt", prompt,
+            "--workspace", args.workspace,
+        ]
+        if args.out:
+            cmd += ["--out", args.out]
+        if args.timeout:
+            cmd += ["--timeout", str(args.timeout)]
+
+        log(f"  Spawning {a}...")
+        p = subprocess.Popen(cmd)
+        procs.append((a, p))
+
+    # Wait for all
+    results = {}
+    for a, p in procs:
+        rc = p.wait()
+        results[a] = rc
+        status = "✓" if rc == 0 else f"✗ ({rc})"
+        log(f"  {a}: {status}")
+
+    log("All agents finished.")
+    for a, rc in results.items():
+        print(f"  {a:15s} exit={rc}")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Run coding agents in Docker containers",
+        usage="agent-run <command|agent> [options]",
+    )
+    sub = parser.add_subparsers(dest="command")
+
+    # setup
+    sub.add_parser("setup", help="Build all Docker images")
+
+    # list
+    sub.add_parser("list", help="List available agents")
+
+    # run (handled by direct agent name)
+    parser.add_argument("agent", nargs="?", help="Agent name (or 'all')")
+    parser.add_argument("--prompt", "-p", help="Prompt string")
+    parser.add_argument("--prompt-file", "-f", help="Path to prompt file")
+    parser.add_argument("--workspace", "-w", required=True, help="Project directory")
+    parser.add_argument("--out", "-o", help="Results output directory")
+    parser.add_argument("--timeout", "-t", type=int, default=600, help="Timeout in seconds")
+
+    args = parser.parse_args()
+
+    if args.command == "setup":
+        return cmd_setup(args)
+    elif args.command == "list":
+        return cmd_list(args)
+    elif args.agent:
+        return cmd_run(args)
+    else:
+        parser.print_help()
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

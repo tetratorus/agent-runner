@@ -1,0 +1,29 @@
+FROM agent-runner/base:latest
+
+USER root
+
+# Install Claude Code
+RUN npm install -g @anthropic-ai/claude-code
+
+# Create entrypoint script
+RUN cat > /usr/local/bin/run-agent << 'SCRIPT'
+#!/bin/bash
+set -e
+PROMPT=$(cat "$PROMPT_FILE")
+echo "=== Claude Code ==="
+echo "Prompt: $PROMPT"
+echo "Workspace: $WORKSPACE"
+echo ""
+cd "$WORKSPACE"
+# Claude Code non-interactive mode
+# We pipe the prompt and use --allowedTools to limit scope
+export CLAUDE_CODE_SKIP_VERSION_CHECK=1
+claude --allowedTools "Bash,Edit,Read,View" "$PROMPT" 2>&1 || true
+echo ""
+echo "=== Done ==="
+SCRIPT
+RUN chmod +x /usr/local/bin/run-agent
+
+USER agent
+WORKDIR /workspace
+ENTRYPOINT ["/usr/local/bin/run-agent"]
