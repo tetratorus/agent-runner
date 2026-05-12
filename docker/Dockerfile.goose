@@ -2,11 +2,13 @@ FROM agent-runner/base:latest
 
 USER root
 
-# Install Goose CLI (precompiled binary from GitHub releases)
-RUN curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | bash
-
-# Goose installs to ~/.local/bin
-ENV PATH="/root/.local/bin:${PATH}"
+# Install Goose CLI (precompiled binary from GitHub releases).
+# CONFIGURE=false skips the interactive provider setup that would otherwise
+# fail in a non-tty Docker build. Copy the binary to /usr/local/bin so both
+# root and the agent user can run it.
+RUN curl -fsSL https://github.com/block/goose/releases/download/stable/download_cli.sh | CONFIGURE=false bash \
+    && cp /root/.local/bin/goose /usr/local/bin/goose \
+    && chmod +x /usr/local/bin/goose
 
 # Create entrypoint script
 RUN cat > /usr/local/bin/run-agent << 'SCRIPT'
@@ -21,8 +23,8 @@ echo ""
 export GOOSE_PROVIDER="${GOOSE_PROVIDER:-anthropic}"
 export GOOSE_MODEL="${GOOSE_MODEL:-claude-sonnet-4-20250514}"
 cd "$WORKSPACE"
-# Goose non-interactive: pipe prompt and exit
-echo "$PROMPT" | goose run --stdin 2>&1 || true
+# Goose non-interactive
+goose run -t "$PROMPT" 2>&1 || true
 echo ""
 echo "=== Done ==="
 SCRIPT
@@ -30,5 +32,4 @@ RUN chmod +x /usr/local/bin/run-agent
 
 USER agent
 WORKDIR /workspace
-ENV PATH="/home/agent/.local/bin:${PATH}"
 ENTRYPOINT ["/usr/local/bin/run-agent"]

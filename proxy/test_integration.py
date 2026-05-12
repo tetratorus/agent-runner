@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Integration tests for claude-to-openai proxy hitting the real OpenAI API.
 
-Requires OPENAI_API_KEY in the environment. Override the model with
-OPENAI_TEST_MODEL (default: gpt-4o-mini).
+Requires DEEPSEEK_API_KEY in the environment. Override the model with
+UPSTREAM_TEST_MODEL (default: gpt-4o-mini).
 """
 
 import json
@@ -13,22 +13,22 @@ from starlette.testclient import TestClient
 
 import proxy as proxy_module
 
-if not os.environ.get("OPENAI_API_KEY"):
-    pytest.skip("OPENAI_API_KEY not set", allow_module_level=True)
+if not os.environ.get("DEEPSEEK_API_KEY"):
+    pytest.skip("DEEPSEEK_API_KEY not set", allow_module_level=True)
 
-MODEL = os.environ.get("OPENAI_TEST_MODEL", "gpt-4o-mini")
+MODEL = os.environ.get("UPSTREAM_TEST_MODEL", "deepseek-chat")
 
 
 @pytest.fixture
 def client():
     """TestClient with the proxy reconfigured to use the real test model."""
-    original_model = proxy_module.OPENAI_MODEL
+    original_model = proxy_module.UPSTREAM_MODEL
     original_map = dict(proxy_module.DEFAULT_MODEL_MAP)
-    proxy_module.OPENAI_MODEL = MODEL
+    proxy_module.UPSTREAM_MODEL = MODEL
     for k in list(proxy_module.DEFAULT_MODEL_MAP):
         proxy_module.DEFAULT_MODEL_MAP[k] = MODEL
     yield TestClient(proxy_module.app)
-    proxy_module.OPENAI_MODEL = original_model
+    proxy_module.UPSTREAM_MODEL = original_model
     proxy_module.DEFAULT_MODEL_MAP.clear()
     proxy_module.DEFAULT_MODEL_MAP.update(original_map)
 
@@ -41,7 +41,7 @@ def test_healthcheck(client):
 
 def test_non_streaming_text(client):
     resp = client.post(
-        "/v1/messages",
+        "/claude/v1/messages",
         json={
             "model": "claude-sonnet-4-6",
             "max_tokens": 50,
@@ -65,7 +65,7 @@ def test_non_streaming_text(client):
 
 def test_non_streaming_tool_call(client):
     resp = client.post(
-        "/v1/messages",
+        "/claude/v1/messages",
         json={
             "model": "claude-sonnet-4-6",
             "max_tokens": 200,
@@ -107,7 +107,7 @@ def test_non_streaming_tool_call(client):
 
 def test_system_prompt(client):
     resp = client.post(
-        "/v1/messages",
+        "/claude/v1/messages",
         json={
             "model": "claude-sonnet-4-6",
             "max_tokens": 20,
@@ -130,7 +130,7 @@ def test_streaming_text(client):
 
     with client.stream(
         "POST",
-        "/v1/messages",
+        "/claude/v1/messages",
         json={
             "model": "claude-sonnet-4-6",
             "max_tokens": 30,

@@ -27,25 +27,46 @@ export OPENAI_API_KEY="sk-..."
   --out ./results
 ```
 
-## Bundled Anthropic→OpenAI proxy
+## Route every agent through DeepSeek (or any cheap OpenAI-compatible backend)
 
-The [`proxy/`](./proxy) directory is a self-contained translator that
-exposes Anthropic's `/v1/messages` and forwards to any OpenAI-compatible
-backend (OpenAI, DeepSeek, Together, Azure, etc.). Lets you run Claude
-Code through a non-Anthropic model.
+The [`proxy/`](./proxy) directory is a small translator that exposes two
+endpoints — one Anthropic-shape, one OpenAI-shape — and forwards both to
+DeepSeek by default. Point each agent at the matching prefix and they all
+end up calling the same cheap backend.
 
 ```bash
 # 1. Start the proxy on the host
 cd proxy && pip install -r requirements.txt
-OPENAI_MODEL=gpt-4o-mini python3 proxy.py     # listens on :7777
+DEEPSEEK_API_KEY=sk-... python3 proxy.py     # listens on :7777
 
-# 2. Point the claude-code container at it
+# 2. Run any agent against it
 ANTHROPIC_API_KEY=dummy \
-ANTHROPIC_BASE_URL=http://host.docker.internal:7777 \
+ANTHROPIC_BASE_URL=http://host.docker.internal:7777/claude \
   ./agent-run claude-code --prompt "..." --workspace ./my-project
+
+OPENAI_API_KEY=dummy \
+OPENAI_BASE_URL=http://host.docker.internal:7777/openai/v1 \
+AIDER_MODEL=openai/deepseek-chat \
+  ./agent-run aider --prompt "..." --workspace ./my-project
 ```
 
+Endpoints:
+- `http://localhost:7777/claude` — Anthropic-shape (Claude Code).
+- `http://localhost:7777/openai/v1` — OpenAI-shape (Codex, Aider, Goose, ...).
+
 See [`proxy/README.md`](./proxy/README.md) for full details.
+
+### Agent status through the DeepSeek proxy
+
+| Agent | Status | Notes |
+|---|---|---|
+| `claude-code` | ✅ works | `ANTHROPIC_BASE_URL=…/claude` |
+| `aider` | ✅ works | `OPENAI_BASE_URL=…/openai/v1` + `AIDER_MODEL=openai/deepseek-chat` |
+| `goose` | ✅ works | `OPENAI_HOST=…/openai` + `GOOSE_PROVIDER=openai GOOSE_MODEL=deepseek-chat` |
+| `codex` | ✅ works | Pinned to `@openai/codex@0.50.0` — newer versions force the OpenAI-only Responses API |
+| `opencode` | ❌ blocked | Uses the Responses API for OpenAI models; needs a Responses translator in the proxy |
+| `nanobot` | ❌ blocked | Provider config not env-driven — needs `nanobot onboard` or written config file |
+| `pi` | ❌ blocked | Needs `~/.pi/agent/models.json` with a custom provider entry |
 
 ## Requirements
 
@@ -58,10 +79,9 @@ See [`proxy/README.md`](./proxy/README.md) for full details.
 | Agent | Key | Needs | Notes |
 |-------|-----|-------|-------|
 | Claude Code | `claude-code` | `ANTHROPIC_API_KEY` | Anthropic official. S-tier reasoning. |
-| Codex CLI | `codex` | `OPENAI_API_KEY` | OpenAI official. Token-efficient. |
+| Codex CLI | `codex` | `OPENAI_API_KEY` | OpenAI official. Token-efficient. Pinned to 0.50.0 for Chat Completions support. |
 | Aider | `aider` | `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | OSS baseline. Git-native, any LLM. |
 | Goose | `goose` | `ANTHROPIC_API_KEY` | Block's open-source agent. Model-agnostic, MCP. |
-| Gemini CLI | `gemini-cli` | `GEMINI_API_KEY` | Google's official CLI. Good with new models. |
 | OpenCode | `opencode` | `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` | Multi-provider fork. |
 | nanobot | `nanobot` | `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | HKUDS. ~4K lines, MCP, memory, subagents. |
 | Pi | `pi` | `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | Composable agent. Skills, AGENTS.md. |

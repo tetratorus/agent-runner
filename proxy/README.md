@@ -1,6 +1,6 @@
 # claude-to-openai
 
-A lightweight HTTP proxy that translates the Anthropic Messages API to the OpenAI Chat Completions API. Use it to point Claude Code (or any Anthropic SDK client) at OpenAI-compatible backends like OpenAI, DeepSeek, Azure, or Together AI.
+A lightweight HTTP proxy that translates the Anthropic Messages API to the OpenAI Chat Completions API. Lets you point Claude Code (or any Anthropic SDK client) at a cheap OpenAI-compatible backend — DeepSeek by default, but it also works with OpenAI, Azure, Together AI, etc.
 
 ## Quick Start
 
@@ -8,8 +8,8 @@ A lightweight HTTP proxy that translates the Anthropic Messages API to the OpenA
 # 1. Install dependencies
 pip install -r requirements.txt
 
-# 2. Set your OpenAI API key
-export OPENAI_API_KEY="sk-..."
+# 2. Set your DeepSeek API key (default backend)
+export DEEPSEEK_API_KEY="sk-..."
 
 # 3. Start the proxy
 python proxy.py
@@ -42,9 +42,9 @@ Streaming (SSE) is fully supported with real-time translation of text and tool c
 
 | Environment Variable | Default | Description |
 |---|---|---|
-| `OPENAI_API_KEY` | *(required)* | Your OpenAI API key |
-| `OPENAI_BASE_URL` | `https://api.openai.com` | OpenAI-compatible base URL |
-| `OPENAI_MODEL` | `gpt-5.4` | Default model when mapping from Claude names |
+| `DEEPSEEK_API_KEY` / `OPENAI_API_KEY` | *(required)* | API key for the upstream backend |
+| `OPENAI_BASE_URL` | `https://api.deepseek.com` | OpenAI-compatible base URL |
+| `OPENAI_MODEL` | `deepseek-chat` | Default model when mapping from Claude names |
 | `PORT` | `7777` | Proxy listen port |
 
 ## Model Mapping
@@ -53,26 +53,28 @@ Claude model names are automatically mapped to the configured OpenAI model:
 
 | Claude Name | Maps To |
 |---|---|
-| `claude-sonnet-4-6` | `OPENAI_MODEL` (default: `gpt-5.4`) |
+| `claude-sonnet-4-6` | `OPENAI_MODEL` (default: `deepseek-chat`) |
 | `claude-opus-4-6` | `OPENAI_MODEL` |
 | `claude-3-5-sonnet` | `OPENAI_MODEL` |
-| `gpt-5.4` | `gpt-5.4` (pass-through) |
+| `gpt-4o-mini` | `gpt-4o-mini` (pass-through) |
 | `deepseek-chat` | `deepseek-chat` (pass-through) |
 
 You can also pass an OpenAI model name directly in the Anthropic request — any model name that doesn't start with `claude` is passed through unchanged.
 
-## Example: DeepSeek Backend
+## Example: OpenAI Backend
 
 ```bash
-export OPENAI_API_KEY="your-deepseek-key"
-export OPENAI_BASE_URL="https://api.deepseek.com"
-export OPENAI_MODEL="deepseek-chat"
+export OPENAI_API_KEY="sk-..."
+export OPENAI_BASE_URL="https://api.openai.com"
+export OPENAI_MODEL="gpt-4o-mini"
 python proxy.py
 
 # In another terminal:
 export ANTHROPIC_BASE_URL=http://localhost:7777
 claude
 ```
+
+Note: OpenAI's `gpt-5.x` and reasoning models (`o1`, `o3`, ...) reject `max_tokens` in favor of `max_completion_tokens`. The proxy doesn't currently translate that — stick with `gpt-4o`/`gpt-4o-mini` if you point it at real OpenAI, or use a backend that still accepts `max_tokens` (DeepSeek, Together, Azure, etc.).
 
 ## Running Tests
 

@@ -20,6 +20,7 @@ import argparse
 import os
 import subprocess
 import sys
+import threading
 import time
 import json
 from pathlib import Path
@@ -39,49 +40,42 @@ AGENTS = {
         "name": "Codex CLI",
         "dockerfile": "Dockerfile.codex",
         "image": "agent-runner/codex",
-        "env": ["OPENAI_API_KEY"],
+        "env": ["OPENAI_API_KEY", "OPENAI_BASE_URL"],
         "description": "OpenAI's Codex CLI — token-efficient, fast terminal",
     },
     "aider": {
         "name": "Aider",
         "dockerfile": "Dockerfile.aider",
         "image": "agent-runner/aider",
-        "env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "AIDER_MODEL"],
+        "env": ["OPENAI_API_KEY", "OPENAI_BASE_URL", "AIDER_MODEL"],
         "description": "Aider — OSS baseline, git-native, any LLM",
     },
     "goose": {
         "name": "Goose",
         "dockerfile": "Dockerfile.goose",
         "image": "agent-runner/goose",
-        "env": ["ANTHROPIC_API_KEY", "GOOSE_PROVIDER", "GOOSE_MODEL"],
+        "env": ["OPENAI_API_KEY", "OPENAI_HOST", "OPENAI_BASE_URL", "GOOSE_PROVIDER", "GOOSE_MODEL"],
         "description": "Block's open-source agent — model-agnostic, MCP, extensible",
-    },
-    "gemini-cli": {
-        "name": "Gemini CLI",
-        "dockerfile": "Dockerfile.gemini",
-        "image": "agent-runner/gemini-cli",
-        "env": ["GEMINI_API_KEY"],
-        "description": "Google's Gemini CLI — good with new models",
     },
     "opencode": {
         "name": "OpenCode",
         "dockerfile": "Dockerfile.opencode",
         "image": "agent-runner/opencode",
-        "env": ["OPENAI_API_KEY", "ANTHROPIC_API_KEY"],
+        "env": ["OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "OPENCODE_MODEL"],
         "description": "Multi-provider fork (GPT, DeepSeek, Gemini, Llama, MiniMax)",
     },
     "nanobot": {
         "name": "nanobot",
         "dockerfile": "Dockerfile.nanobot",
         "image": "agent-runner/nanobot",
-        "env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "NANOBOT_PROVIDER", "NANOBOT_MODEL"],
+        "env": ["OPENAI_API_KEY", "OPENAI_BASE_URL", "NANOBOT_PROVIDER", "NANOBOT_MODEL"],
         "description": "HKUDS ultra-lightweight agent (~4K lines) with MCP, memory, subagents",
     },
     "pi": {
         "name": "Pi Coding Agent",
         "dockerfile": "Dockerfile.pi",
         "image": "agent-runner/pi",
-        "env": ["ANTHROPIC_API_KEY", "OPENAI_API_KEY"],
+        "env": ["OPENAI_API_KEY", "OPENAI_BASE_URL", "PI_BASE_URL", "PI_MODEL"],
         "description": "Mario Zechner's composable agent — skills, AGENTS.md, token-efficient",
     },
 }
@@ -151,17 +145,22 @@ def build_image(agent_key):
     return True
 
 
+# Suffixes for env vars that are forwarded if set but never required —
+# base URLs, custom hosts, provider/model selectors.
+_OPTIONAL_ENV_SUFFIXES = ("_BASE_URL", "_HOST", "_MODEL", "_PROVIDER")
+
+
 def check_env(agent_key):
-    """Ensure required env vars are set."""
+    """Ensure required env vars are set. Base URLs and provider/model
+    selectors are forwarded when set but never required."""
     cfg = AGENTS[agent_key]
     missing = []
     for var in cfg["env"]:
-        if not os.environ.get(var):
-            # For AIDER_MODEL, use a default
-            if var == "AIDER_MODEL":
-                os.environ[var] = "claude-3-7-sonnet-20250219"
-                continue
-            missing.append(var)
+        if os.environ.get(var):
+            continue
+        if any(var.endswith(s) for s in _OPTIONAL_ENV_SUFFIXES):
+            continue
+        missing.append(var)
     if missing:
         log(f"ERROR: Missing env vars for {cfg['name']}: {', '.join(missing)}")
         log(f"  Set them: export {' '.join(f'{v}=...' for v in missing)}")
@@ -214,7 +213,14 @@ def run_agent(agent_key, prompt, workspace, out_dir=None, timeout=600):
         f"{cfg['image']}"
     )
 
-    # Run with timeout
+    container_name = f"agent-{agent_key}-{ts}"
+    timed_out = {"hit": False}
+
+    def kill_container():
+        timed_out["hit"] = True
+        log(f"TIMEOUT after {timeout}s — killing {container_name}")
+        run_cmd(f"docker kill {container_name}", capture=True)
+
     try:
         with open(log_file, "w") as lf:
             lf.write(f"# {cfg['name']} run started at {datetime.now().isoformat()}\n")
@@ -229,26 +235,29 @@ def run_agent(agent_key, prompt, workspace, out_dir=None, timeout=600):
                 stderr=subprocess.STDOUT,
                 text=True,
             )
-            # Stream output to both log and console
-            for line in proc.stdout:
-                lf.write(line)
-                lf.flush()
-                print(line, end="")
-
-            proc.wait(timeout=timeout)
-            rc = proc.returncode
+            # Watchdog: docker-kill the container if it overruns. We can't rely
+            # on proc.wait(timeout=...) because the stdout drain loop below
+            # blocks until the container has already exited.
+            timer = threading.Timer(timeout, kill_container)
+            timer.daemon = True
+            timer.start()
+            try:
+                for line in proc.stdout:
+                    lf.write(line)
+                    lf.flush()
+                    print(line, end="")
+                proc.wait()
+            finally:
+                timer.cancel()
+            rc = 124 if timed_out["hit"] else proc.returncode
             lf.write(f"\n# Exit code: {rc}\n")
 
         log(f"Finished {cfg['name']} — exit {rc}, log: {log_file}")
         return rc
 
-    except subprocess.TimeoutExpired:
-        log(f"TIMEOUT after {timeout}s — killing container")
-        run_cmd(f"docker kill agent-{agent_key}-{ts}")
-        return 124
     except KeyboardInterrupt:
         log("Interrupted — killing container")
-        run_cmd(f"docker kill agent-{agent_key}-{ts}")
+        run_cmd(f"docker kill {container_name}", capture=True)
         return 130
 
 
@@ -348,7 +357,7 @@ def cmd_run(args):
     log("All agents finished.")
     for a, rc in results.items():
         print(f"  {a:15s} exit={rc}")
-    return 0
+    return 0 if all(rc == 0 for rc in results.values()) else 1
 
 
 def main():

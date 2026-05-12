@@ -15,10 +15,9 @@ echo "Prompt: $PROMPT"
 echo "Workspace: $WORKSPACE"
 echo ""
 cd "$WORKSPACE"
-# Claude Code non-interactive mode
-# We pipe the prompt and use --allowedTools to limit scope
+# Claude Code non-interactive mode. --dangerously-skip-permissions auto-approves.
 export CLAUDE_CODE_SKIP_VERSION_CHECK=1
-claude --print "$PROMPT" --allowedTools "Bash,Edit,Read,View" 2>&1 || true
+claude --print --dangerously-skip-permissions "$PROMPT" 2>&1 || true
 echo ""
 echo "=== Done ==="
 SCRIPT

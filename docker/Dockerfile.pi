@@ -5,7 +5,32 @@ USER root
 # Install Pi Coding Agent
 RUN npm install -g @mariozechner/pi-coding-agent
 
-# Create entrypoint script
+# Pi doesn't read OPENAI_BASE_URL — custom providers are registered via a
+# loaded extension. Bake a tiny extension that registers a "proxy" provider
+# whose base URL comes from PI_BASE_URL (falling back to the local DeepSeek
+# proxy on the host).
+RUN mkdir -p /home/agent/.pi && cat > /home/agent/.pi/proxy-provider.ts << 'TS'
+export default function (pi: any) {
+  pi.registerProvider("proxy", {
+    baseUrl: process.env.PI_BASE_URL || "http://host.docker.internal:7777/openai/v1",
+    apiKey: "OPENAI_API_KEY",
+    api: "openai-completions",
+    models: [
+      {
+        id: "deepseek-chat",
+        name: "DeepSeek (via proxy)",
+        reasoning: false,
+        input: ["text"],
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        contextWindow: 65536,
+        maxTokens: 8192,
+      },
+    ],
+  });
+}
+TS
+RUN chown -R agent:agent /home/agent/.pi
+
 RUN cat > /usr/local/bin/run-agent << 'SCRIPT'
 #!/bin/bash
 set -e
@@ -15,8 +40,11 @@ echo "Prompt: $PROMPT"
 echo "Workspace: $WORKSPACE"
 echo ""
 cd "$WORKSPACE"
-# Pi agent non-interactive mode
-pi "$PROMPT" 2>&1 || true
+pi -e /home/agent/.pi/proxy-provider.ts \
+   --provider proxy \
+   --model "${PI_MODEL:-deepseek-chat}" \
+   --print \
+   "$PROMPT" 2>&1 || true
 echo ""
 echo "=== Done ==="
 SCRIPT

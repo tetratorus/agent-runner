@@ -5,7 +5,28 @@ USER root
 # Install nanobot
 RUN pip3 install --break-system-packages nanobot-ai
 
-# Create entrypoint script
+# Seed ~/.nanobot/config.json so nanobot's "custom" (OpenAI-compatible) provider
+# points at the local DeepSeek proxy by default. The entrypoint substitutes
+# runtime values from env vars so users can override without rebuilding.
+RUN mkdir -p /home/agent/.nanobot && cat > /home/agent/.nanobot/config.json.template << 'JSON'
+{
+  "agents": {
+    "defaults": {
+      "provider": "custom",
+      "model": "__MODEL__"
+    }
+  },
+  "providers": {
+    "custom": {
+      "api_key": "__API_KEY__",
+      "api_base": "__API_BASE__"
+    }
+  }
+}
+JSON
+RUN chown -R agent:agent /home/agent/.nanobot
+
+# Entrypoint substitutes runtime values into the config and runs the agent.
 RUN cat > /usr/local/bin/run-agent << 'SCRIPT'
 #!/bin/bash
 set -e
@@ -14,11 +35,17 @@ echo "=== nanobot ==="
 echo "Prompt: $PROMPT"
 echo "Workspace: $WORKSPACE"
 echo ""
-# nanobot runs in the workspace directory
-export NANOBOT_WORKSPACE="$WORKSPACE"
-export NANOBOT_PROVIDER="${NANOBOT_PROVIDER:-anthropic}"
-export NANOBOT_MODEL="${NANOBOT_MODEL:-claude-sonnet-4-20250514}"
-# Run nanobot agent in headless mode
+
+# Materialize config from template + env
+API_BASE="${OPENAI_BASE_URL:-http://host.docker.internal:7777/openai/v1}"
+API_KEY="${OPENAI_API_KEY:-dummy}"
+MODEL="${NANOBOT_MODEL:-deepseek-chat}"
+sed -e "s|__MODEL__|${MODEL}|g" \
+    -e "s|__API_KEY__|${API_KEY}|g" \
+    -e "s|__API_BASE__|${API_BASE}|g" \
+    /home/agent/.nanobot/config.json.template > /home/agent/.nanobot/config.json
+
+cd "$WORKSPACE"
 nanobot agent -m "$PROMPT" 2>&1 || true
 echo ""
 echo "=== Done ==="

@@ -13,13 +13,13 @@ from proxy import (
 
 class TestMapModel:
     def test_known_claude_model(self):
-        assert map_model("claude-sonnet-4-6") == "gpt-5.4"
+        assert map_model("claude-sonnet-4-6") == "deepseek-chat"
 
     def test_unknown_claude_model_defaults(self):
-        assert map_model("claude-unknown-99") == "gpt-5.4"
+        assert map_model("claude-unknown-99") == "deepseek-chat"
 
     def test_openai_model_passes_through(self):
-        assert map_model("gpt-5.4") == "gpt-5.4"
+        assert map_model("gpt-4o-mini") == "gpt-4o-mini"
         assert map_model("deepseek-chat") == "deepseek-chat"
 
 
@@ -31,7 +31,7 @@ class TestRequestTranslation:
             "messages": [{"role": "user", "content": "Hello"}],
         }
         result = anthropic_to_openai_request(body)
-        assert result["model"] == "gpt-5.4"
+        assert result["model"] == "deepseek-chat"
         assert result["messages"] == [{"role": "user", "content": "Hello"}]
         assert result["max_tokens"] == 1024
 
@@ -129,6 +129,56 @@ class TestRequestTranslation:
         assert result["messages"][1]["role"] == "tool"
         assert result["messages"][1]["tool_call_id"] == "toolu_01"
         assert result["messages"][1]["content"] == "Sunny"
+
+    def test_tool_result_content_as_list(self):
+        """Anthropic allows tool_result.content as a list of content blocks.
+        Previously the proxy str()-ed the list, emitting Python repr."""
+        body = {
+            "model": "claude-sonnet-4-6",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "tool_result",
+                            "tool_use_id": "toolu_01",
+                            "content": [
+                                {"type": "text", "text": "Sunny, "},
+                                {"type": "text", "text": "72F"},
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+        result = anthropic_to_openai_request(body)
+        assert result["messages"][0]["role"] == "tool"
+        assert result["messages"][0]["content"] == "Sunny, 72F"
+
+    def test_user_message_text_and_tool_result_mixed(self):
+        """When a user message has both tool_result and text blocks, both
+        must be forwarded — tool_result as a tool message, text as a user
+        message after it (OpenAI requires tool messages right after the
+        assistant's tool_calls)."""
+        body = {
+            "model": "claude-sonnet-4-6",
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "tool_result", "tool_use_id": "toolu_01", "content": "Sunny"},
+                        {"type": "text", "text": "Also tell me about the wind."},
+                    ],
+                }
+            ],
+        }
+        result = anthropic_to_openai_request(body)
+        assert len(result["messages"]) == 2
+        assert result["messages"][0]["role"] == "tool"
+        assert result["messages"][0]["tool_call_id"] == "toolu_01"
+        assert result["messages"][0]["content"] == "Sunny"
+        assert result["messages"][1]["role"] == "user"
+        assert result["messages"][1]["content"] == "Also tell me about the wind."
 
     def test_streaming(self):
         body = {

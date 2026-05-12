@@ -2,8 +2,26 @@ FROM agent-runner/base:latest
 
 USER root
 
-# Install Codex CLI
-RUN npm install -g @openai/codex
+# Install Codex CLI. Pinned to a version that still supports
+# `wire_api = "chat"`. Newer versions (>= ~0.70) removed Chat Completions
+# support and force the OpenAI-only Responses API, which DeepSeek and other
+# Chat-Completions-compatible backends don't implement.
+RUN npm install -g @openai/codex@0.50.0
+
+# Codex defaults to the OpenAI Responses API (api.openai.com only). Write a
+# config.toml that points it at a configurable OpenAI-compatible chat-completions
+# endpoint instead — by default the local DeepSeek proxy on the host.
+RUN mkdir -p /home/agent/.codex && cat > /home/agent/.codex/config.toml << 'TOML'
+model_provider = "proxy"
+model = "deepseek-chat"
+
+[model_providers.proxy]
+name = "Local proxy"
+base_url = "http://host.docker.internal:7777/openai/v1"
+env_key = "OPENAI_API_KEY"
+wire_api = "chat"
+TOML
+RUN chown -R agent:agent /home/agent/.codex
 
 # Create entrypoint script
 RUN cat > /usr/local/bin/run-agent << 'SCRIPT'
@@ -15,8 +33,10 @@ echo "Prompt: $PROMPT"
 echo "Workspace: $WORKSPACE"
 echo ""
 cd "$WORKSPACE"
-# Codex non-interactive mode (auto approval, quiet)
-codex --approval-mode auto-qos "$PROMPT" 2>&1 || true
+# Codex non-interactive mode. --skip-git-repo-check is required because /workspace
+# is mounted in but isn't necessarily a git repo. --dangerously-bypass-approvals-and-sandbox
+# is needed for autonomous runs (no interactive approvals).
+codex exec --skip-git-repo-check --dangerously-bypass-approvals-and-sandbox "$PROMPT" 2>&1 || true
 echo ""
 echo "=== Done ==="
 SCRIPT

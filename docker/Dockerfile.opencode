@@ -15,8 +15,10 @@ echo "Prompt: $PROMPT"
 echo "Workspace: $WORKSPACE"
 echo ""
 cd "$WORKSPACE"
-# OpenCode non-interactive mode
-opencode --prompt "$PROMPT" 2>&1 || true
+# OpenCode non-interactive mode. --dangerously-skip-permissions auto-approves.
+# Route via the anthropic provider (proxy at /claude/v1) — opencode's openai
+# provider uses the Responses API which DeepSeek doesn't implement.
+opencode run --dangerously-skip-permissions --format json --model "${OPENCODE_MODEL:-anthropic/claude-sonnet-4-5}" "$PROMPT" 2>&1 || true
 echo ""
 echo "=== Done ==="
 SCRIPT
