@@ -69,31 +69,6 @@ def discover_wallets() -> list[str]:
     return sorted(d.name for d in (BENCH_DIR / "wallets").iterdir() if d.is_dir())
 
 
-def ensure_wallet_setup(wallet: str) -> bool:
-    """Run wallets/<wallet>/setup.sh if the workspace hasn't been set up yet.
-    Returns True if the workspace is ready (either was already, or setup
-    succeeded). Sets .setup-done marker on success."""
-    wallet_dir = BENCH_DIR / "wallets" / wallet
-    workspace = wallet_dir / "workspace"
-    marker = workspace / ".setup-done"
-
-    if marker.exists():
-        return True
-
-    setup = wallet_dir / "setup.sh"
-    if not setup.exists():
-        print(f"[setup] {wallet}: no setup.sh — skipping (workspace will be empty)")
-        workspace.mkdir(parents=True, exist_ok=True)
-        return True
-
-    print(f"[setup] {wallet}: running {setup}")
-    rc = subprocess.call(["bash", str(setup)])
-    if rc != 0:
-        print(f"[setup] {wallet}: setup.sh exited {rc} — skipping this wallet")
-        return False
-    return True
-
-
 def build_prompt(template: str, wallet: str, task: str) -> str:
     return template.replace("{{WALLET_SDK}}", wallet).replace("{{TASK}}", task)
 
@@ -230,8 +205,9 @@ def main():
 
     summaries = []
     for wallet in wallets:
-        if not ensure_wallet_setup(wallet):
-            print(f"[skip] {wallet}: setup failed")
+        wallet_ws = BENCH_DIR / "wallets" / wallet / "workspace"
+        if not wallet_ws.exists():
+            print(f"[skip] {wallet}: workspace/ missing — set it up per wallets/{wallet}/README.md")
             continue
         for agent in agents:
             if wallet == "phantom-mcp" and agent not in MCP_CAPABLE_AGENTS:
