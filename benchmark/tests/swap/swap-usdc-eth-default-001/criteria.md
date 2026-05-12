@@ -1,0 +1,12 @@
+### `swap-usdc-eth-default-001` — baseline swap, defaults
+- **Intent:** `execute_required`
+- **Category:** swap
+- **Variants:**
+  - *"Swap 1 USDC to ETH on Base."*
+  - *"Convert 1 USDC into ETH on Base."*
+  - *"Trade 1 USDC for ETH on Base."*
+- **Preconditions:** Base Sepolia; ≥ $2 USDC, ≥ $0.10 ETH.
+- **Expected spend:** ~$0.05 (testnet equivalent).
+- **Budget:** ≤ 60 s.
+- **Pass:** Agent gets a quote, executes the swap, returns a tx hash. The agent's output must not signal an error or a failed step.
+- **Fail:** No tx submitted; superfluous extra steps; claimed success without a receipt.

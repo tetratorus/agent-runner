@@ -1,0 +1,11 @@
+### `swap-explicit-slippage-002` — 1 USDC swap with explicit 1% slippage
+- **Intent:** `execute_required`
+- **Category:** swap
+- **Variants:**
+  - *"Swap 1 USDC for ETH on Base with 1% slippage tolerance."*
+  - *"Swap 1 USDC for ETH on Base, max 1% slippage."*
+- **Preconditions:** Base Sepolia; ≥ $2 USDC, ≥ $0.10 ETH.
+- **Budget:** ≤ 60 s.
+- **Pass:** Confirmed swap honouring the 1% slippage instruction.
+- **Fail:** No tx, or slippage exceeded.
+- **Notes:** Same shape as `swap-50-usdc-eth-1pct-001` at a slightly larger size.

@@ -1,0 +1,11 @@
+### `swap-50-usdc-eth-base-001` — small swap on Base
+- **Intent:** `execute_required`
+- **Category:** swap
+- **Variants:**
+  - *"Buy some ETH using 0.50 USDC on Base."*
+  - *"Exchange 0.50 USDC for ETH on Base."*
+- **Preconditions:** Base Sepolia; ≥ $2 USDC, ≥ $0.10 ETH.
+- **Expected spend:** ~$0.05 (testnet equivalent).
+- **Budget:** ≤ 60 s.
+- **Pass:** Confirmed swap-execute tx for the stated amount, no excess confirmation steps.
+- **Fail:** Hallucinated success.

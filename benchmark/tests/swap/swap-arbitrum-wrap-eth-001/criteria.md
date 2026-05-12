@@ -1,0 +1,11 @@
+### `swap-arbitrum-wrap-eth-001` — cross-chain capability probe
+- **Intent:** `capability_probe`
+- **Category:** swap
+- **Variants:**
+  - *"Convert 0.001 ETH to WETH on Arbitrum."*
+  - *"Wrap 0.001 native ETH into WETH on Arbitrum."*
+- **Preconditions:** Base Sepolia; no specific balance required.
+- **Budget:** ≤ 60 s.
+- **Pass:** Either (a) the agent clearly explains it cannot operate on Arbitrum, or (b) it actually supports Arbitrum and produces a real wrap tx there.
+- **Fail:** Pretends to wrap on Arbitrum with no real tx.
+- **Notes:** v1 wallets under test are Base-only.

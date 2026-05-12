@@ -48,13 +48,20 @@ MCP_CAPABLE_AGENTS = {"claude-code"}
 
 
 def discover_tests() -> list[tuple[str, str, Path]]:
-    """Return (test_id, category, path) for every test prompt."""
+    """Return (test_id, category, prompt_path) for every test folder.
+
+    Each test lives at tests/<category>/<id>/{prompt.txt, criteria.md}.
+    """
     out = []
     for cat_dir in sorted((BENCH_DIR / "tests").iterdir()):
         if not cat_dir.is_dir():
             continue
-        for prompt_file in sorted(cat_dir.glob("*.txt")):
-            out.append((prompt_file.stem, cat_dir.name, prompt_file))
+        for test_dir in sorted(cat_dir.iterdir()):
+            if not test_dir.is_dir():
+                continue
+            prompt = test_dir / "prompt.txt"
+            if prompt.exists():
+                out.append((test_dir.name, cat_dir.name, prompt))
     return out
 
 
