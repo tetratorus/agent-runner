@@ -1,3 +1,8 @@
 __pycache__/
 results/
 *.pyc
+
+# Per-wallet workspace template — populated by wallets/<name>/setup.sh.
+# Contains node_modules, .env with private keys, OAuth session files,
+# etc. Never commit.
+wallets/*/workspace/
