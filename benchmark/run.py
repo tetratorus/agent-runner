@@ -22,9 +22,11 @@ Outputs go to `results/<run-id>/<wallet>/<agent>/<test_id>/`:
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import shutil
+import socket
 import subprocess
 import sys
 import time
@@ -45,6 +47,62 @@ DEFAULT_AGENTS = ["claude-code", "codex", "aider", "goose", "nanobot", "pi"]
 
 # Which wallets each agent can drive. phantom-mcp needs MCP support.
 MCP_CAPABLE_AGENTS = {"claude-code"}
+
+# Wallets whose in-container CLI is a thin shim that forwards to a host-side
+# proxy. The benchmark spawns these proxies before running any of their cells
+# and tears them down on exit. Keyed by wallet → path to the proxy script.
+HOST_PROXIES = {
+    "awal": (BENCH_DIR / "wallets" / "awal" / "host-awal-proxy.py", 7788),
+}
+
+
+def _port_in_use(port: int) -> bool:
+    try:
+        with socket.create_connection(("127.0.0.1", port), timeout=0.3):
+            return True
+    except OSError:
+        return False
+
+
+def ensure_host_proxies(wallets: list[str]) -> None:
+    """Start any required host-side proxies for the selected wallets. If a
+    proxy is already listening on its port, reuse it. Spawned proxies are
+    killed on interpreter exit."""
+    for wallet in wallets:
+        if wallet not in HOST_PROXIES:
+            continue
+        script, port = HOST_PROXIES[wallet]
+        if _port_in_use(port):
+            print(f"[run] {wallet} host proxy already running on :{port}")
+            continue
+        log_path = Path(f"/tmp/{wallet}-host-proxy.log")
+        log_fh = open(log_path, "w")
+        proc = subprocess.Popen(
+            [sys.executable, str(script)],
+            stdout=log_fh, stderr=subprocess.STDOUT,
+        )
+        # Wait up to ~2s for the listener to bind.
+        for _ in range(20):
+            if _port_in_use(port):
+                break
+            time.sleep(0.1)
+        else:
+            proc.terminate()
+            raise RuntimeError(
+                f"{wallet} host proxy failed to bind :{port} — see {log_path}"
+            )
+        print(f"[run] started {wallet} host proxy pid={proc.pid} (log: {log_path})")
+        atexit.register(_stop_proc, proc)
+
+
+def _stop_proc(proc: subprocess.Popen) -> None:
+    if proc.poll() is not None:
+        return
+    proc.terminate()
+    try:
+        proc.wait(timeout=3)
+    except subprocess.TimeoutExpired:
+        proc.kill()
 
 
 def discover_tests() -> list[tuple[str, str, Path]]:
@@ -121,7 +179,7 @@ def run_cell(
     template_ws = wallet_dir / "workspace"
     cell_ws = cell_dir / "workspace"
     if template_ws.exists():
-        shutil.copytree(template_ws, cell_ws, dirs_exist_ok=True)
+        shutil.copytree(template_ws, cell_ws, dirs_exist_ok=True, symlinks=True)
     else:
         cell_ws.mkdir(parents=True, exist_ok=True)
 
@@ -202,6 +260,8 @@ def main():
     print(f"[run] wallets={wallets}")
     print(f"[run] agents={agents}")
     print(f"[run] tests={len(all_tests)}")
+
+    ensure_host_proxies(wallets)
 
     summaries = []
     for wallet in wallets:

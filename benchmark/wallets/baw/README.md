@@ -2,8 +2,9 @@
 
 Standalone, keyless wallet for AI agents, separated from a user's main
 Binance MPC Wallet. Supports BNB Chain, Solana, Ethereum, Base.
-Distributed as a Skills package — there is no standalone `baw` CLI you
-can install with `npm install`.
+The benchmark installs both the `baw` CLI and the Binance Agentic Wallet
+skill so agents can either follow the local skill docs or shell out to
+`baw` directly.
 
 ## Prerequisites
 
@@ -14,34 +15,47 @@ can install with `npm install`.
 ## Install
 
 ```bash
-# Non-interactive — install for a specific agent (e.g. claude-code):
-npx skills add binance/binance-skills-hub/skills/binance-web3/binance-agentic-wallet \
-    --agent claude-code --skill '*' --yes --global
-
-# Or for every installed agent at once:
-npx skills add binance/binance-skills-hub/skills/binance-web3/binance-agentic-wallet \
-    --all --global
+./setup.sh
 ```
 
-The skills CLI auto-detects which agent runtimes are present (Claude
-Code, Codex, OpenCode, Aider, Cursor, OpenClaw, etc.) and registers the
-skill manifest into each chosen agent's skill directory. The agent gains
-new tools; there is no separate CLI binary called `baw`.
+The setup script installs `@binance/agentic-wallet@1.0.9` into
+`workspace/node_modules`, installs the `binance-agentic-wallet` skill into
+`workspace/.agents`, and writes `workspace/.env` with:
+
+- `BINANCE_INSTANCE_ID=baw-benchmark-v1`
+- `BINANCE_BAW_DIR=/workspace/.baw`
+
+`BINANCE_INSTANCE_ID` must be stable because the CLI encrypts
+`.baw/session.json` using this value when it is set. Without it, Docker
+container identity changes can make a prepared session unreadable during
+benchmark runs.
+
+Useful setup flags:
+
+```bash
+./setup.sh --clean        # reinstall node dependencies
+./setup.sh --reset-state  # discard BAW auth/session state and re-auth
+```
 
 ## Authenticate
 
-Auth is driven through the agent, not via a shell command. From the
-install guide:
+Auth uses the CLI QR flow:
 
-> After installation, instruct your AI agent with: "Sign in to Binance
-> Agentic Wallet"
+```bash
+baw auth signin --json
+baw auth verify --qrCodeId <id> --json
+baw wallet status --json
+```
 
-The agent surfaces a sign-in link:
+`./setup.sh` runs this flow interactively. Scan or open the returned Binance
+link, approve in the Binance app, then press Enter so setup can verify and
+persist the session under `workspace/.baw`.
 
-- **Mobile**: link opens the Binance app for confirmation.
-- **Web**: QR code displayed; scan with the Binance app, confirm.
+Sign-out:
 
-Sign-out: tell the agent `"Sign out"`.
+```bash
+baw auth signout --json
+```
 
 ## Security model
 
@@ -55,4 +69,4 @@ Sign-out: tell the agent `"Sign out"`.
 - [Binance Open Platform — Agentic Wallet welcome](https://developers.binance.com/docs/agentic-wallet/welcome)
 - [Install Agentic Wallet quickstart](https://developers.binance.com/docs/agentic-wallet/quickstart/install-agentic-wallet)
 - [github.com/binance/binance-skills-hub](https://github.com/binance/binance-skills-hub)
-- `npx skills --help`, `npx skills add --help` (probed in `node:20` container)
+- `baw --help`, `baw auth --help`, `npx skills add --help` (probed in `node:20` container)

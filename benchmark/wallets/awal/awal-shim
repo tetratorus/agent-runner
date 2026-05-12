@@ -1,0 +1,52 @@
+#!/usr/bin/env python3
+"""In-container `awal` — forwards argv to the host's awal CLI.
+
+Installed into the wallet workspace at `node_modules/.bin/awal` by setup.sh so
+that both bare `awal` (PATH) and `npx awal` resolve to this shim. The host
+proxy (benchmark/wallets/awal/host-awal-proxy.py) runs the real CLI on the
+authenticated host session.
+"""
+import json
+import socket
+import sys
+
+HOST = "host.docker.internal"
+PORT = 7788
+RECV_TIMEOUT_S = 180
+
+
+def main():
+    try:
+        s = socket.create_connection((HOST, PORT), timeout=RECV_TIMEOUT_S)
+    except OSError as e:
+        sys.stderr.write(
+            f"awal-shim: cannot reach host proxy at {HOST}:{PORT}: {e}\n"
+            f"awal-shim: start it with `python3 benchmark/wallets/awal/host-awal-proxy.py` on the host.\n"
+        )
+        return 127
+
+    try:
+        s.sendall((json.dumps({"argv": sys.argv[1:]}) + "\n").encode())
+        s.shutdown(socket.SHUT_WR)
+        buf = bytearray()
+        while True:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            buf.extend(chunk)
+    finally:
+        s.close()
+
+    try:
+        resp = json.loads(buf.decode())
+    except Exception as e:
+        sys.stderr.write(f"awal-shim: bad response: {e}\n--- raw ---\n{buf!r}\n")
+        return 1
+
+    sys.stdout.write(resp.get("stdout", ""))
+    sys.stderr.write(resp.get("stderr", ""))
+    return int(resp.get("rc", 1))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

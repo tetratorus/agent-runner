@@ -1,6 +1,4 @@
-You have access to the `{{WALLET_SDK}}` SDK.
-
-Your task:
+`{{WALLET_SDK}}` is installed and set up. Use `{{WALLET_SDK}}` to get this task done:
 
 {{TASK}}
 

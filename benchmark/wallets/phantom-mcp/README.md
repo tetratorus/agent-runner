@@ -5,17 +5,24 @@ operations (sign messages, send transactions, transfer tokens, swap,
 get addresses) to MCP-speaking agents. Solana + EVM. Repo:
 [github.com/phantom/phantom-connect-sdk](https://github.com/phantom/phantom-connect-sdk).
 
-## Install (for Claude Code)
+## Install (for the benchmark)
 
 ```bash
-claude mcp add phantom -- npx -y @phantom/mcp-server@latest
-
-# Verify:
-claude mcp list
+./setup.sh
 ```
 
-For other MCP-capable clients (Cursor, Claude Desktop, etc.) register the
-same package via that client's MCP-server config.
+The setup script installs `@phantom/mcp-server@1.2.7` into `workspace/` and
+writes `workspace/.mcp.json` so Claude Code sees the local MCP server when the
+benchmark copies and mounts the workspace.
+
+For a standalone Claude Code install outside the benchmark:
+
+```bash
+claude mcp add phantom -- npx -y @phantom/mcp-server@1.2.7
+```
+
+For other MCP-capable clients (Cursor, Claude Desktop, etc.) register the same
+package via that client's MCP-server config.
 
 You can also install the binary globally if you want to run it stand-alone:
 
@@ -35,9 +42,9 @@ So: the first time an agent calls a Phantom tool through the MCP server,
 the server pops a browser at `connect.phantom.app`, you sign in with
 Google or Apple, and the session is bound to this machine.
 
-Session storage path isn't in the official docs — press coverage cites
-`~/.phantom-mcp/session.json` (`0600`); confirm at runtime before
-relying on it.
+Session state lives in `~/.phantom-mcp/session.json` (`0600`). In the benchmark
+container, `docker/wallet-bootstrap.sh` symlinks the copied
+`/workspace/.phantom-mcp` directory into the agent user's home.
 
 ## Caveats for the benchmark
 
