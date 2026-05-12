@@ -1,49 +1,69 @@
 # coinfello — CoinFello agent CLI
 
-CoinFello drives any EVM smart contract via an AI agent. Security model
-is ERC-4337 smart accounts + ERC-7710 fine-grained delegations through
-the MetaMask Smart Accounts Kit — the user's signing key never leaves
-their device; the agent acts under a scoped delegation.
+`@coinfello/agent-cli v0.3.6`. Tagline: *"CoinFello CLI - Smart Account
+interactions"*. ERC-4337 smart account + ERC-7710 fine-grained delegation
+model via MetaMask Smart Accounts Kit — the user's signing key stays
+local; the agent acts under a scoped delegation.
 
 ## Install
 
 ```bash
-# Requires Node.js 20+. npx ships with node, no separate install needed.
-npx @coinfello/agent-cli <command>
+npm install -g @coinfello/agent-cli
+# binary lands at: coinfello
+# Requires Node.js ≥ 20.
 ```
 
-The CLI was also published as an OpenClaw skill ("brettcleary/coinfello")
-for agents that consume skills, but the canonical entry point is the
-`@coinfello/agent-cli` npm package.
+## Authenticate / set up
 
-## Authenticate
+```bash
+# 1. Create the smart account (writes its address to local config).
+coinfello create_account
+coinfello get_account            # verify
 
-Sign in with Ethereum (SIWE) using the CLI's `signin` command. This
-produces a session tied to the smart account. From the announcement:
+# 2. Sign in to a server using SIWE with that account.
+coinfello sign_in
+```
 
-> Interact with CoinFello using the @coinfello/agent-cli to create a smart
-> account, sign in with SIWE, manage delegations, send prompts with
-> server-driven ERC-20 token subdelegations, and check transaction status.
+After sign-in you grant CoinFello delegations:
 
-Concrete CLI subcommands and persisted paths aren't documented in the
-public announcements I could find. The SKILL.md at
-`openclaw/skills/skills/brettcleary/coinfello/SKILL.md` is referenced
-but currently 404s on GitHub — needs to be confirmed live.
+```bash
+coinfello send_prompt "<task description>"     # the server may request a delegation
+coinfello approve_delegation_request           # sign + submit it
+coinfello set_delegation <signed-JSON>         # or import an existing one
+```
 
-## Env vars
+For higher-security signing, the package ships a Secure Enclave daemon:
 
-None documented in the public material.
+```bash
+coinfello signer-daemon
+```
+
+Conversation state:
+
+```bash
+coinfello new_chat                # clear saved chat ID, start fresh
+```
+
+The "local config" mentioned in the help text is the persistence target —
+exact path isn't surfaced in `--help`; check `~/.coinfello/` or similar
+at runtime.
+
+## Full command list
+
+```
+create_account             Create a smart account, save address to local config
+get_account                Print current smart account address
+sign_in                    SIWE sign-in
+set_delegation <json>      Store a signed delegation in local config
+new_chat                   Clear saved chat ID, start fresh
+send_prompt <prompt>       Send a prompt to CoinFello server
+approve_delegation_request Approve + sign a pending delegation, submit
+signer-daemon              Manage the Secure Enclave signing daemon
+```
 
 ## Sources
 
-- [CoinFello launch — open source AI agent transactions to MetaMask Smart Accounts](https://www.opensourceforu.com/2026/03/coinfello-brings-open-source-ai-agent-transactions-to-metamask-smart-accounts/)
-- [DL News — CoinFello launches OpenClaw skill](https://www.dlnews.com/external/coinfello-launches-openclaw-skill-for-ai-agent-transactions/)
-- [Tech Startups — CoinFello: First self-sovereign AI agent](https://techstartups.com/2025/11/17/coinfello-the-first-self-sovereign-ai-agent-for-using-and-automating-any-smart-contract/)
-- [MetaMask Smart Accounts Kit](https://metamask.io/developer/delegation-toolkit) (the underlying delegation framework)
-
-## Gaps to verify before benchmarking
-
-- Exact subcommands of `@coinfello/agent-cli` (signin, delegate, …).
-- Where the smart-account address + delegation state are stored.
-- Whether a developer key from a CoinFello portal is required, or sign-in
-  alone is sufficient.
+- [npm: @coinfello/agent-cli](https://www.npmjs.com/package/@coinfello/agent-cli)
+- [GitHub: CoinFello/agent-cli](https://github.com/CoinFello/agent-cli)
+- `coinfello --help` (probed inside `node:20` container)
+- [MetaMask Smart Accounts Kit](https://metamask.io/developer/delegation-toolkit) — the underlying delegation framework

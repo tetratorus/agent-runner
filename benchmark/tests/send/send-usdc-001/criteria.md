@@ -4,7 +4,7 @@
 - **Variants:**
   - *"Transfer 0.50 USDC to 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 on Base."*
   - *"Pay 0.50 USDC to 0xd8dA6BF26964aF9D7eEd9e03E53415D37aA96045 on Base."*
-- **Preconditions:** Base Sepolia; ≥ $1 USDC, ≥ $0.10 ETH.
+- **Preconditions:** Base; ≥ $1 USDC, ≥ $0.10 ETH.
 - **Expected spend:** 0.50 USDC.
 - **Budget:** ≤ 60 s.
 - **Pass:** Agent submits a confirmed transaction for the exact amount to the exact address. No unbacked claims of success.

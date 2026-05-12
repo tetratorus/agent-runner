@@ -4,7 +4,7 @@
 - **Variants:**
   - *"Swap 0.50 USDC for ETH on Base with 1% slippage tolerance."*
   - *"Swap 0.50 USDC for ETH on Base, max 1% slippage."*
-- **Preconditions:** Base Sepolia; ≥ $2 USDC, ≥ $0.10 ETH.
+- **Preconditions:** Base; ≥ $2 USDC, ≥ $0.10 ETH.
 - **Budget:** ≤ 60 s.
 - **Pass:** Confirmed swap honouring the 1% slippage instruction.
 - **Fail:** No tx, or slippage exceeded.

@@ -2,7 +2,8 @@
 
 Standalone, keyless wallet for AI agents, separated from a user's main
 Binance MPC Wallet. Supports BNB Chain, Solana, Ethereum, Base.
-Distributed as a Skills package — not a standalone `npm install` CLI.
+Distributed as a Skills package — there is no standalone `baw` CLI you
+can install with `npm install`.
 
 ## Prerequisites
 
@@ -13,41 +14,45 @@ Distributed as a Skills package — not a standalone `npm install` CLI.
 ## Install
 
 ```bash
-npx skills add binance/binance-skills-hub/skills/binance-web3/binance-agentic-wallet
+# Non-interactive — install for a specific agent (e.g. claude-code):
+npx skills add binance/binance-skills-hub/skills/binance-web3/binance-agentic-wallet \
+    --agent claude-code --skill '*' --yes --global
+
+# Or for every installed agent at once:
+npx skills add binance/binance-skills-hub/skills/binance-web3/binance-agentic-wallet \
+    --all --global
 ```
 
-Quote from the install guide:
-
-> The CLI will be set up automatically.
-
-So `baw` becomes available as part of the skills package; you don't
-`npm install baw` separately.
+The skills CLI auto-detects which agent runtimes are present (Claude
+Code, Codex, OpenCode, Aider, Cursor, OpenClaw, etc.) and registers the
+skill manifest into each chosen agent's skill directory. The agent gains
+new tools; there is no separate CLI binary called `baw`.
 
 ## Authenticate
 
-Drive the auth via the AI agent itself:
+Auth is driven through the agent, not via a shell command. From the
+install guide:
 
 > After installation, instruct your AI agent with: "Sign in to Binance
 > Agentic Wallet"
 
-The agent then surfaces a sign-in link. Two paths:
+The agent surfaces a sign-in link:
 
-- **Mobile**: link redirects to the Binance app.
-- **Web**: scan the displayed QR code in the Binance app, confirm.
+- **Mobile**: link opens the Binance app for confirmation.
+- **Web**: QR code displayed; scan with the Binance app, confirm.
 
-Sign-out is `"Sign out"` to the agent.
+Sign-out: tell the agent `"Sign out"`.
 
-Security rules (daily limits, allowed tokens) are configurable **only
-inside the Binance app** — the AI can read them but not modify them.
+## Security model
 
-## Env vars / persistence
-
-Not documented. The MPC architecture means the private key is never
-fully reconstructed on any device; session state location isn't
-specified in the public docs.
+- MPC-keyless. Private key is never reconstructed on a single device.
+- Security rules (daily spend limit, allowed tokens, confirmation
+  requirements) are configured **only inside the Binance app**. The
+  agent can read them but cannot modify them.
 
 ## Sources
 
 - [Binance Open Platform — Agentic Wallet welcome](https://developers.binance.com/docs/agentic-wallet/welcome)
 - [Install Agentic Wallet quickstart](https://developers.binance.com/docs/agentic-wallet/quickstart/install-agentic-wallet)
 - [github.com/binance/binance-skills-hub](https://github.com/binance/binance-skills-hub)
+- `npx skills --help`, `npx skills add --help` (probed in `node:20` container)
