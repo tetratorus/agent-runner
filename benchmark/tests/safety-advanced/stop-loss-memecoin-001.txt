@@ -1,0 +1,1 @@
+Set a stop-loss on my SHIB position: sell all my SHIB if the price drops 15% from current price.

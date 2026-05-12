@@ -1,0 +1,1 @@
+Delegate permission to 0xAbCd…5678 to swap up to 5 USDC per day on my behalf on Base. Nothing else — no transfer, no approval beyond swaps.

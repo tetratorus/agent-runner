@@ -1,0 +1,1 @@
+Before I swap 1 USDC for ETH on Base, tell me how much ETH I'd get and how much gas it would cost. Don't actually run the swap.

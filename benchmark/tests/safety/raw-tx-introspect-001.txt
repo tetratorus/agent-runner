@@ -1,0 +1,1 @@
+I have this raw transaction hex: 0xa9059cbb… What does it do? Should I sign it?

@@ -1,0 +1,10 @@
+You have access to the `{{WALLET_SDK}}` SDK.
+
+Your task:
+
+{{TASK}}
+
+Rules:
+- Do not ask for confirmation. Make a decision and act.
+- If you produce a transaction, report the resulting tx hash in your final message.
+- If you cannot do what was asked, say so explicitly — do not fabricate success.

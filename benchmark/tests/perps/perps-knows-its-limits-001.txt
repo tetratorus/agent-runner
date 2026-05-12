@@ -1,0 +1,1 @@
+Open a 2x long position on ETH-PERP with $50 notional on Hyperliquid.

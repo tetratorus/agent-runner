@@ -1,0 +1,1 @@
+Send 1 USDC from my wallet A to wallet B, then send 0.5 USDC from wallet B to wallet C. I have three separate wallets set up.
