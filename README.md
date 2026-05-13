@@ -46,13 +46,12 @@ ANTHROPIC_BASE_URL=http://host.docker.internal:7777/claude \
 
 OPENAI_API_KEY=dummy \
 OPENAI_BASE_URL=http://host.docker.internal:7777/openai/v1 \
-AIDER_MODEL=openai/deepseek-chat \
-  ./agent-run aider --prompt "..." --workspace ./my-project
+  ./agent-run codex --prompt "..." --workspace ./my-project
 ```
 
 Endpoints:
 - `http://localhost:7777/claude` — Anthropic-shape (Claude Code).
-- `http://localhost:7777/openai/v1` — OpenAI-shape (Codex, Aider, Goose, ...).
+- `http://localhost:7777/openai/v1` — OpenAI-shape (Codex, Goose, ...).
 
 See [`proxy/README.md`](./proxy/README.md) for full details.
 
@@ -61,11 +60,9 @@ See [`proxy/README.md`](./proxy/README.md) for full details.
 | Agent | Status | Notes |
 |---|---|---|
 | `claude-code` | ✅ works | `ANTHROPIC_BASE_URL=…/claude` |
-| `aider` | ✅ works | `OPENAI_BASE_URL=…/openai/v1` + `AIDER_MODEL=openai/deepseek-chat` |
-| `goose` | ✅ works | `OPENAI_HOST=…/openai` + `GOOSE_PROVIDER=openai GOOSE_MODEL=deepseek-chat` |
 | `codex` | ✅ works | Pinned to `@openai/codex@0.50.0` — newer versions force the OpenAI-only Responses API |
+| `goose` | ✅ works | `OPENAI_HOST=…/openai` + `GOOSE_PROVIDER=openai GOOSE_MODEL=deepseek-chat` |
 | `opencode` | ❌ blocked | Uses the Responses API for OpenAI models; needs a Responses translator in the proxy |
-| `nanobot` | ❌ blocked | Provider config not env-driven — needs `nanobot onboard` or written config file |
 | `pi` | ❌ blocked | Needs `~/.pi/agent/models.json` with a custom provider entry |
 
 ## Requirements
@@ -80,10 +77,8 @@ See [`proxy/README.md`](./proxy/README.md) for full details.
 |-------|-----|-------|-------|
 | Claude Code | `claude-code` | `ANTHROPIC_API_KEY` | Anthropic official. S-tier reasoning. |
 | Codex CLI | `codex` | `OPENAI_API_KEY` | OpenAI official. Token-efficient. Pinned to 0.50.0 for Chat Completions support. |
-| Aider | `aider` | `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | OSS baseline. Git-native, any LLM. |
 | Goose | `goose` | `ANTHROPIC_API_KEY` | Block's open-source agent. Model-agnostic, MCP. |
 | OpenCode | `opencode` | `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` | Multi-provider fork. |
-| nanobot | `nanobot` | `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | HKUDS. ~4K lines, MCP, memory, subagents. |
 | Pi | `pi` | `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | Composable agent. Skills, AGENTS.md. |
 
 ## Commands
@@ -93,14 +88,14 @@ See [`proxy/README.md`](./proxy/README.md) for full details.
 ./agent-run list                           # List agents + env status
 ./agent-run claude-code --prompt "..." --workspace ./project
 ./agent-run codex --prompt-file ./task.md --workspace ./project
-./agent-run aider --prompt "..." --workspace ./project --timeout 300
+./agent-run goose --prompt "..." --workspace ./project --timeout 300
 ./agent-run all --prompt "..." --workspace ./project --out ./results
 ./agent-run claude-code,codex --prompt "..." --workspace ./project
 ```
 
 ## How It Works
 
-1. **Docker isolation** — each agent runs in its own container with only its required runtime (Node.js for Claude/Codex, Python for Aider)
+1. **Docker isolation** — each agent runs in its own container with only its required runtime
 2. **Volume mount** — your project directory is mounted read-write at `/workspace`
 3. **API keys** — passed as environment variables, never written to disk inside the container
 4. **Results** — output logs and modified files are written to `./results/<agent>/<timestamp>/`
@@ -115,7 +110,7 @@ agent-runner/
 │   ├── Dockerfile.base    # Debian + Node + Python
 │   ├── Dockerfile.claude  # Claude Code
 │   ├── Dockerfile.codex   # Codex CLI
-│   └── Dockerfile.aider   # Aider
+│   └── Dockerfile.<agent> # one per agent listed above
 ├── results/               # Created on first run
 └── README.md
 ```

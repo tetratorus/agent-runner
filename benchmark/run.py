@@ -23,12 +23,14 @@ from __future__ import annotations
 
 import argparse
 import atexit
+import concurrent.futures
 import json
 import os
 import shutil
 import socket
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from pathlib import Path
@@ -38,15 +40,47 @@ from datetime import datetime
 BENCH_DIR = Path(__file__).parent.resolve()
 REPO_DIR = BENCH_DIR.parent
 AGENT_RUN = REPO_DIR / "agent-run"
-PROXY_LOG = Path(os.environ.get("LOG_FILE", REPO_DIR / "proxy.log.jsonl"))
+
+# Pin every URL the benchmarked agents care about to the local proxy. The
+# shell that launches run.py may have a different ANTHROPIC_BASE_URL set
+# (e.g. pointing at a host-side llmproxy at `localhost:NNNN`) — that value
+# is meaningless inside the docker containers, where `localhost` is the
+# container itself. Override unconditionally. Keys that aren't a URL get
+# setdefault treatment so caller-supplied keys still win.
+_URL_OVERRIDES = {
+    "LOG_FILE": "/tmp/proxy.jsonl",
+    "ANTHROPIC_BASE_URL": "http://host.docker.internal:7777/claude",
+    "OPENAI_BASE_URL": "http://host.docker.internal:7777/openai/v1",
+    "OPENAI_HOST": "http://host.docker.internal:7777/openai",
+    "PI_BASE_URL": "http://host.docker.internal:7777/openai/v1",
+}
+_KEY_DEFAULTS = {
+    "ANTHROPIC_API_KEY": "sk-1234123412341234123412341234123412341234",
+    "OPENAI_API_KEY": "sk-1234123412341234123412341234123412341234",
+    "GOOSE_PROVIDER": "openai",
+    "GOOSE_MODEL": "deepseek-chat",
+    "PI_MODEL": "deepseek-chat",
+}
+for _k, _v in _URL_OVERRIDES.items():
+    if os.environ.get(_k) != _v and os.environ.get(_k):
+        print(f"[run] overriding {_k} ('{os.environ[_k]}' → '{_v}')", file=sys.stderr)
+    os.environ[_k] = _v
+for _k, _v in _KEY_DEFAULTS.items():
+    os.environ.setdefault(_k, _v)
+
+PROXY_LOG = Path(os.environ["LOG_FILE"])
 
 
 # Agents in agent-run's AGENTS dict that are wired up against the proxy.
 # Skip gemini (removed) and any agent that can't speak through the proxy.
-DEFAULT_AGENTS = ["claude-code", "codex", "aider", "goose", "nanobot", "pi"]
+DEFAULT_AGENTS = [
+    "claude-code", "codex", "goose", "pi",
+]
 
-# Which wallets each agent can drive. phantom-mcp needs MCP support.
-MCP_CAPABLE_AGENTS = {"claude-code"}
+# phantom-mcp is exposed via an MCP server, but every agent can also shell out
+# to the `phantom` CLI in the workspace directly. We let every agent try —
+# claude-code uses MCP via .mcp.json; the others fall through to bash and
+# invoke `phantom` like any other wallet CLI. No filter applied.
 
 # Wallets whose in-container CLI is a thin shim that forwards to a host-side
 # proxy. The benchmark spawns these proxies before running any of their cells
@@ -128,6 +162,12 @@ def discover_wallets() -> list[str]:
 
 
 def build_prompt(template: str, wallet: str, task: str) -> str:
+    """If a wallet directory has its own template.txt, use that (lets us
+    swap the intro for wallets whose surface area differs from a plain CLI —
+    e.g., phantom-mcp's MCP server). Otherwise use the shared default."""
+    wallet_template = BENCH_DIR / "wallets" / wallet / "template.txt"
+    if wallet_template.exists():
+        template = wallet_template.read_text()
     return template.replace("{{WALLET_SDK}}", wallet).replace("{{TASK}}", task)
 
 
@@ -138,7 +178,11 @@ def proxy_log_size() -> int:
         return 0
 
 
-def slice_proxy_log(start: int, end: int) -> list[dict]:
+def slice_proxy_log(start: int, end: int, marker: str | None = None) -> list[dict]:
+    """Read proxy log bytes in [start, end] and return JSON entries. When a
+    `marker` is given, keep only entries whose first user message contains
+    that marker — necessary when multiple cells run concurrently and their
+    proxy entries interleave in the shared log."""
     if not PROXY_LOG.exists():
         return []
     with open(PROXY_LOG, "rb") as f:
@@ -150,9 +194,22 @@ def slice_proxy_log(start: int, end: int) -> list[dict]:
         if not line:
             continue
         try:
-            out.append(json.loads(line))
+            entry = json.loads(line)
         except json.JSONDecodeError:
-            pass
+            continue
+        if marker is not None:
+            # Different agents place the cell prompt in different positions —
+            # codex/goose put a system prompt at messages[0] and bury the
+            # user prompt later. Search every message (and the system field,
+            # which some clients also use) for the marker.
+            body = entry.get("client_request_body") or {}
+            haystack_parts = [json.dumps(body.get("messages") or [])]
+            sysf = body.get("system")
+            if sysf is not None:
+                haystack_parts.append(json.dumps(sysf))
+            if marker not in "".join(haystack_parts):
+                continue
+        out.append(entry)
     return out
 
 
@@ -172,7 +229,14 @@ def run_cell(
 
     wallet_dir = BENCH_DIR / "wallets" / wallet
     task = prompt_path.read_text().strip()
-    prompt = build_prompt(template, wallet, task)
+    base_prompt = build_prompt(template, wallet, task)
+
+    # Embed a unique cell marker so we can re-identify this cell's entries in
+    # a shared proxy log when wallets run concurrently. The marker lands in
+    # the first user message, which every subsequent request re-sends, so it
+    # appears in every entry for this cell.
+    cell_marker = f"bench-cell-{uuid.uuid4().hex[:12]}"
+    prompt = f"<!-- {cell_marker} -->\n\n{base_prompt}"
     (cell_dir / "prompt.txt").write_text(prompt)
 
     # Per-cell workspace: clone the wallet's template workspace.
@@ -209,7 +273,7 @@ def run_cell(
 
     elapsed = time.time() - t0
     log_end = proxy_log_size()
-    proxy_entries = slice_proxy_log(log_start, log_end)
+    proxy_entries = slice_proxy_log(log_start, log_end, marker=cell_marker)
 
     (cell_dir / "stdout.log").write_text(stdout)
     (cell_dir / "stderr.log").write_text(stderr)
@@ -233,6 +297,14 @@ def run_cell(
 
 
 def main():
+    # When stdout is piped, Python block-buffers it and our prints land long
+    # after subprocess output. Switch to line buffering so run/grade/report
+    # output stays in chronological order.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except AttributeError:
+        pass
+
     p = argparse.ArgumentParser(description="Run the agentic wallet benchmark.")
     p.add_argument("--wallets", help="Comma-separated wallet names. Default: all.")
     p.add_argument("--agents", help=f"Comma-separated agent names. Default: {','.join(DEFAULT_AGENTS)}.")
@@ -240,6 +312,16 @@ def main():
     p.add_argument("--timeout", type=int, default=180, help="Per-cell timeout (seconds).")
     p.add_argument("--run-id", default=None, help="Run identifier. Defaults to UTC timestamp.")
     p.add_argument("--results-dir", default=None, help="Override results root.")
+    p.add_argument("--grade", action="store_true",
+                   help="Run grade.py after all cells finish.")
+    p.add_argument("--report", action="store_true",
+                   help="Print a markdown results table after grading (implies --grade).")
+    p.add_argument("--judge-timeout", type=int, default=180,
+                   help="Per-cell timeout for the grading judge (seconds).")
+    p.add_argument("--wallet-parallelism", type=int, default=5,
+                   help="How many wallets to run concurrently. Cells within a wallet stay sequential to avoid stomping on shared wallet state.")
+    p.add_argument("--grade-parallelism", type=int, default=8,
+                   help="How many cells to grade in parallel (each grade spawns a claude-code judge container).")
     args = p.parse_args()
 
     run_id = args.run_id or datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
@@ -263,28 +345,58 @@ def main():
 
     ensure_host_proxies(wallets)
 
-    summaries = []
-    for wallet in wallets:
+    summaries: list[dict] = []
+    summaries_lock = threading.Lock()
+    print_lock = threading.Lock()
+
+    def run_wallet(wallet: str) -> None:
         wallet_ws = BENCH_DIR / "wallets" / wallet / "workspace"
         if not wallet_ws.exists():
-            print(f"[skip] {wallet}: workspace/ missing — set it up per wallets/{wallet}/README.md")
-            continue
+            with print_lock:
+                print(f"[skip] {wallet}: workspace/ missing — set it up per wallets/{wallet}/README.md")
+            return
         for agent in agents:
-            if wallet == "phantom-mcp" and agent not in MCP_CAPABLE_AGENTS:
-                print(f"[skip] {wallet} × {agent}: agent does not speak MCP")
-                continue
             for test_id, category, prompt_path in all_tests:
-                print(f"[run] {wallet} × {agent} × {test_id}")
+                with print_lock:
+                    print(f"[run] {wallet} × {agent} × {test_id}")
                 s = run_cell(
                     wallet, agent, test_id, category, prompt_path,
                     template, out_root, args.timeout,
                 )
-                summaries.append(s)
-                print(f"      exit={s['exit_code']} entries={s['proxy_entries_count']} {s['elapsed_seconds']:.1f}s")
+                with summaries_lock:
+                    summaries.append(s)
+                with print_lock:
+                    print(f"      {wallet} × {agent} × {test_id}: exit={s['exit_code']} entries={s['proxy_entries_count']} {s['elapsed_seconds']:.1f}s")
 
+    parallelism = max(1, min(args.wallet_parallelism, len(wallets)))
+    print(f"[run] wallet parallelism = {parallelism}")
+    with concurrent.futures.ThreadPoolExecutor(max_workers=parallelism) as pool:
+        list(pool.map(run_wallet, wallets))
+
+    # Stable order in index.json regardless of completion order.
+    summaries.sort(key=lambda s: (s["wallet"], s["agent"], s["test_id"]))
     with open(out_root / "index.json", "w") as f:
         json.dump(summaries, f, indent=2)
     print(f"[run] wrote {len(summaries)} cell summaries → {out_root}/index.json")
+
+    if args.grade or args.report:
+        print(f"[run] grading {len(summaries)} cells (judge timeout {args.judge_timeout}s, parallelism {args.grade_parallelism})…")
+        rc = subprocess.call([
+            sys.executable, str(BENCH_DIR / "grade.py"),
+            "--run-id", run_id,
+            "--judge-timeout", str(args.judge_timeout),
+            "--parallelism", str(args.grade_parallelism),
+        ])
+        if rc != 0:
+            print(f"[run] grade.py exited {rc}; skipping report")
+            return rc
+
+    if args.report:
+        print()
+        subprocess.call([
+            sys.executable, str(BENCH_DIR / "report.py"),
+            "--run-id", run_id,
+        ])
 
 
 if __name__ == "__main__":

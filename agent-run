@@ -44,13 +44,6 @@ AGENTS = {
         "env": ["OPENAI_API_KEY", "OPENAI_BASE_URL"],
         "description": "OpenAI's Codex CLI — token-efficient, fast terminal",
     },
-    "aider": {
-        "name": "Aider",
-        "dockerfile": "Dockerfile.aider",
-        "image": "agent-runner/aider",
-        "env": ["OPENAI_API_KEY", "OPENAI_BASE_URL", "AIDER_MODEL"],
-        "description": "Aider — OSS baseline, git-native, any LLM",
-    },
     "goose": {
         "name": "Goose",
         "dockerfile": "Dockerfile.goose",
@@ -64,13 +57,6 @@ AGENTS = {
         "image": "agent-runner/opencode",
         "env": ["OPENAI_API_KEY", "OPENAI_BASE_URL", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "OPENCODE_MODEL"],
         "description": "Multi-provider fork (GPT, DeepSeek, Gemini, Llama, MiniMax)",
-    },
-    "nanobot": {
-        "name": "nanobot",
-        "dockerfile": "Dockerfile.nanobot",
-        "image": "agent-runner/nanobot",
-        "env": ["OPENAI_API_KEY", "OPENAI_BASE_URL", "NANOBOT_PROVIDER", "NANOBOT_MODEL"],
-        "description": "HKUDS ultra-lightweight agent (~4K lines) with MCP, memory, subagents",
     },
     "pi": {
         "name": "Pi Coding Agent",
@@ -182,8 +168,10 @@ def run_agent(agent_key, prompt, workspace, out_dir=None, timeout=600):
         log(f"ERROR: Workspace not found: {ws}")
         return 1
 
-    # Results directory
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    # Results directory. Suffix the timestamp with a short random tag so
+    # concurrent runs (e.g. parallel benchmark cells) don't collide on the
+    # docker --name in the same second.
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S") + "-" + os.urandom(2).hex()
     if out_dir:
         result_dir = Path(out_dir).resolve() / agent_key / ts
     else:

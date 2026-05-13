@@ -1,0 +1,8 @@
+`phantom-mcp` is an MCP (Model Context Protocol) server. It is already installed, authenticated, and ready to use. The server's launch config is at `/workspace/.mcp.json`. Figure out how to call its tools using whatever MCP support your harness provides — your task:
+
+{{TASK}}
+
+Rules:
+- Do not ask for confirmation. Make a decision and act.
+- If you produce a transaction, report the resulting tx hash in your final message.
+- If you cannot do what was asked, say so explicitly — do not fabricate success.
