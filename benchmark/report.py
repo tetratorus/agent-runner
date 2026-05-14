@@ -36,10 +36,29 @@ def load_grades(run_dir: Path) -> list[dict]:
     return out
 
 
+def _cell_glyph(c: dict | None) -> str:
+    if c is None:
+        return "—"
+    if c.get("skipped"):
+        return "N/A"
+    glyph = "✓" if c.get("pass") else "✗"
+    n = c.get("passes_count", 0) or 0
+    if n <= 1:
+        return glyph
+    # Multi-pass: append pass-count/total so readers can see judge variance
+    # at a glance. Example: "✓ 4/5" means 4 of 5 judges said pass.
+    pc = c.get("pass_count", 0) or 0
+    fc = c.get("fail_count", 0) or 0
+    if c.get("pass"):
+        return f"{glyph} {pc}/{pc+fc}"
+    return f"{glyph} {fc}/{pc+fc}"
+
+
 def render_markdown(grades: list[dict]) -> str:
     agents = sorted({g["agent"] for g in grades})
     cells = {(g["test_id"], g["wallet"], g["agent"]): g for g in grades}
     rows = sorted({(g["test_id"], g["wallet"]) for g in grades})
+    multi_pass = any((g.get("passes_count") or 0) > 1 for g in grades)
 
     out = io.StringIO()
     header = ["Test", "Wallet", *agents]
@@ -48,22 +67,36 @@ def render_markdown(grades: list[dict]) -> str:
     for (test, wallet) in rows:
         cells_row = [test, wallet]
         for a in agents:
-            c = cells.get((test, wallet, a))
-            if c is None:
-                cells_row.append("—")
-            elif c.get("pass"):
-                cells_row.append("✓")
-            else:
-                cells_row.append("✗")
+            cells_row.append(_cell_glyph(cells.get((test, wallet, a))))
         out.write("| " + " | ".join(cells_row) + " |\n")
 
-    # Per-agent totals over the cells that actually ran.
+    # Per-agent totals exclude N/A so they aren't penalized for cells they
+    # were never asked to run.
     totals = ["**TOTAL**", ""]
     for a in agents:
-        ran = [c for (t, w, ag), c in cells.items() if ag == a]
+        ran = [c for (t, w, ag), c in cells.items() if ag == a and not c.get("skipped")]
         passed = sum(1 for c in ran if c.get("pass"))
         totals.append(f"{passed}/{len(ran)}" if ran else "—")
     out.write("| " + " | ".join(totals) + " |\n")
+
+    if multi_pass:
+        out.write("\n")
+        # Variance summary
+        scored = [g for g in grades if not g.get("skipped") and (g.get("passes_count") or 0) > 0]
+        if scored:
+            unanimous = sum(1 for g in scored if (g.get("agreement", 1.0) or 0) >= 0.999)
+            avg = sum((g.get("agreement", 0.0) or 0) for g in scored) / len(scored)
+            out.write(f"_Multi-pass grading: {unanimous}/{len(scored)} cells unanimous, "
+                      f"avg judge agreement = {avg:.2f}._\n")
+            split = [g for g in scored if (g.get("agreement", 1.0) or 0) < 0.999]
+            if split:
+                out.write("\n_Cells where judges disagreed (mode shown above):_\n")
+                out.write("| Test | Wallet | Agent | Pass/Fail/Total | Agreement |\n")
+                out.write("|---|---|---|---|---|\n")
+                for g in sorted(split, key=lambda x: (x.get("agreement", 1), x["wallet"], x["agent"], x["test_id"])):
+                    pc = g.get("pass_count", 0); fc = g.get("fail_count", 0); n = pc + fc
+                    out.write(f"| {g['test_id']} | {g['wallet']} | {g['agent']} | "
+                              f"{pc}/{fc}/{n} | {g.get('agreement', 0):.2f} |\n")
     return out.getvalue()
 
 
@@ -81,6 +114,8 @@ def render_csv(grades: list[dict]) -> str:
             c = cells.get((test, wallet, a))
             if c is None:
                 out.append("")
+            elif c.get("skipped"):
+                out.append("N/A")
             else:
                 out.append("PASS" if c.get("pass") else "FAIL")
         w.writerow(out)

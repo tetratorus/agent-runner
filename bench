@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# One-shot benchmark runner.
+#
+# Usage:
+#   ./bench                               # full matrix, all wallets × all default agents × all tests
+#   ./bench --tests read-portfolio-001    # subset of tests
+#   ./bench --wallets awal --agents codex # subset of wallets/agents
+#   ./bench --run-id my-experiment        # name the run
+#
+# All flags after `./bench` are forwarded to benchmark/run.py. We always pass
+# --grade --report so the run produces both a grades.json and a markdown table.
+#
+# Requirements:
+#   * Docker Desktop running
+#   * agent-runner images built (`./agent-run setup`)
+#   * Each wallet workspace prepared (`./benchmark/wallets/<wallet>/setup.sh`)
+#   * The DeepSeek-translation proxy running on :7777 with
+#     LOG_FILE=/tmp/proxy.jsonl  — see proxy/README.md.
+
+set -euo pipefail
+cd "$(dirname "$0")"
+exec python3 benchmark/run.py --grade --report "$@"

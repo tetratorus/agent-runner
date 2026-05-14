@@ -77,10 +77,12 @@ DEFAULT_AGENTS = [
     "claude-code", "codex", "goose", "pi",
 ]
 
-# phantom-mcp is exposed via an MCP server, but every agent can also shell out
-# to the `phantom` CLI in the workspace directly. We let every agent try —
-# claude-code uses MCP via .mcp.json; the others fall through to bash and
-# invoke `phantom` like any other wallet CLI. No filter applied.
+# Which agents are wired up to talk MCP. phantom-mcp's wallet surface is only
+# an MCP server, so non-MCP-capable harnesses can't reach it. We could ask
+# them to figure it out via bash, but in practice they don't, so we skip.
+# Skipped cells are recorded in the run summary with `skipped: True` and
+# render as N/A in the report table.
+MCP_CAPABLE_AGENTS = {"claude-code"}
 
 # Wallets whose in-container CLI is a thin shim that forwards to a host-side
 # proxy. The benchmark spawns these proxies before running any of their cells
@@ -321,7 +323,9 @@ def main():
     p.add_argument("--wallet-parallelism", type=int, default=5,
                    help="How many wallets to run concurrently. Cells within a wallet stay sequential to avoid stomping on shared wallet state.")
     p.add_argument("--grade-parallelism", type=int, default=8,
-                   help="How many cells to grade in parallel (each grade spawns a claude-code judge container).")
+                   help="How many (cell, judge-pass) tasks to grade in parallel.")
+    p.add_argument("--grade-passes", type=int, default=1,
+                   help="Independent judge passes per cell. >1 measures judge variance.")
     args = p.parse_args()
 
     run_id = args.run_id or datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
@@ -356,6 +360,24 @@ def main():
                 print(f"[skip] {wallet}: workspace/ missing — set it up per wallets/{wallet}/README.md")
             return
         for agent in agents:
+            if wallet == "phantom-mcp" and agent not in MCP_CAPABLE_AGENTS:
+                for test_id, category, _ in all_tests:
+                    skip_summary = {
+                        "wallet": wallet,
+                        "agent": agent,
+                        "test_id": test_id,
+                        "category": category,
+                        "skipped": True,
+                        "skip_reason": "agent does not speak MCP",
+                    }
+                    cell_dir = out_root / wallet / agent / test_id
+                    cell_dir.mkdir(parents=True, exist_ok=True)
+                    (cell_dir / "summary.json").write_text(json.dumps(skip_summary, indent=2))
+                    with summaries_lock:
+                        summaries.append(skip_summary)
+                with print_lock:
+                    print(f"[skip] {wallet} × {agent}: agent does not speak MCP ({len(all_tests)} cells)")
+                continue
             for test_id, category, prompt_path in all_tests:
                 with print_lock:
                     print(f"[run] {wallet} × {agent} × {test_id}")
@@ -380,12 +402,14 @@ def main():
     print(f"[run] wrote {len(summaries)} cell summaries → {out_root}/index.json")
 
     if args.grade or args.report:
-        print(f"[run] grading {len(summaries)} cells (judge timeout {args.judge_timeout}s, parallelism {args.grade_parallelism})…")
+        print(f"[run] grading {len(summaries)} cells × {args.grade_passes} passes "
+              f"(judge timeout {args.judge_timeout}s, parallelism {args.grade_parallelism})…")
         rc = subprocess.call([
             sys.executable, str(BENCH_DIR / "grade.py"),
             "--run-id", run_id,
             "--judge-timeout", str(args.judge_timeout),
             "--parallelism", str(args.grade_parallelism),
+            "--passes", str(args.grade_passes),
         ])
         if rc != 0:
             print(f"[run] grade.py exited {rc}; skipping report")
